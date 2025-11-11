@@ -3,16 +3,23 @@ import { UsuarioModel } from '../models/usuarioSchema';
 import { hashPassword, comparePassword } from '../utils/password';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/tokenService';
 
-// Helper para enviar tokens
-function sendTokenResponse(res: Response, accessToken: string, refreshToken: string, user: any) {
-  // Configurar cookie httpOnly para refresh token
+// Helper para configurar cookies de refresh token
+function setRefreshTokenCookie(res: Response, refreshToken: string): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+  
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isProduction, // Solo HTTPS en producción
+    sameSite: isProduction ? 'none' : 'lax', // 'none' permite cross-origin en producción
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
     path: '/api/auth',
   });
+}
+
+// Helper para enviar tokens
+function sendTokenResponse(res: Response, accessToken: string, refreshToken: string, user: any) {
+  // Configurar cookie httpOnly para refresh token
+  setRefreshTokenCookie(res, refreshToken);
 
   // Usuario sin password
   const userResponse = {
@@ -186,13 +193,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     const newRefreshToken = signRefreshToken(userId);
 
     // Enviar nueva cookie
-    res.cookie('refreshToken', newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/api/auth',
-    });
+    setRefreshTokenCookie(res, newRefreshToken);
 
     res.status(200).json({
       message: 'Token renovado exitosamente',
@@ -207,8 +208,14 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 // POST /api/auth/logout
 export async function logout(req: Request, res: Response): Promise<void> {
   try {
-    // Limpiar cookie (el token expirará automáticamente en 7 días)
-    res.clearCookie('refreshToken', { path: '/api/auth' });
+    // Limpiar cookie con las mismas opciones que se usaron para crearla
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/api/auth',
+    });
     res.status(200).json({ message: 'Sesión cerrada exitosamente' });
   } catch (error) {
     console.error('Error en logout:', error);
