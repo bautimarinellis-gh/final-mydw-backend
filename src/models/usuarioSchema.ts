@@ -9,8 +9,16 @@ const usuarioSchema = new Schema({
   carrera: { type: String, required: true, trim: true },
   sede: { type: String, required: true, trim: true },
   edad: { type: Number, required: true },
-  intereses: { type: [String], default: [] },
-  refreshTokens: { type: [String], default: [], select: false }
+  intereses: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: function(v: string[]) {
+        return v.length <= 5;
+      },
+      message: 'Máximo 5 intereses permitidos'
+    }
+  }
 }, {
   timestamps: true
 });

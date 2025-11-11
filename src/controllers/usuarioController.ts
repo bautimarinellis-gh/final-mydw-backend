@@ -46,6 +46,20 @@ export async function register(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Validar y procesar intereses
+    if (intereses !== undefined && intereses !== null) {
+      if (!Array.isArray(intereses)) {
+        res.status(400).json({ message: 'Los intereses deben ser un array' });
+        return;
+      }
+      // Validar que todos los intereses sean strings
+      const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
+      if (interesesInvalidos) {
+        res.status(400).json({ message: 'Todos los intereses deben ser strings' });
+        return;
+      }
+    }
+
     // Verificar email único
     const existingUser = await UsuarioModel.findOne({ email: email.toLowerCase() });
     if (existingUser) {
@@ -55,6 +69,21 @@ export async function register(req: Request, res: Response): Promise<void> {
 
     // Hashear password
     const hashedPassword = await hashPassword(password);
+
+    // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
+    let interesesProcesados: string[] = [];
+    if (intereses && Array.isArray(intereses)) {
+      interesesProcesados = intereses
+        .map((interes: string) => interes.trim())
+        .filter((interes: string) => interes !== '') // Eliminar strings vacíos
+        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+      
+      // Validar que después de procesar no haya más de 5
+      if (interesesProcesados.length > 5) {
+        res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
+        return;
+      }
+    }
 
     // Crear usuario
     const newUser = await UsuarioModel.create({
@@ -66,19 +95,13 @@ export async function register(req: Request, res: Response): Promise<void> {
       carrera,
       sede,
       edad,
-      intereses: intereses || [],
+      intereses: interesesProcesados,
     });
 
     // Crear tokens
     const userId = String(newUser._id);
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
-    
-    // Guardar refresh token hasheado en el usuario
-    const hashedRefreshToken = await hashPassword(refreshToken);
-    await UsuarioModel.findByIdAndUpdate(userId, {
-      $push: { refreshTokens: hashedRefreshToken }
-    });
 
     const responseData = sendTokenResponse(res, accessToken, refreshToken, newUser);
     res.status(201).json({
@@ -119,12 +142,6 @@ export async function login(req: Request, res: Response): Promise<void> {
     const userId = String(user._id);
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
-    
-    // Guardar refresh token hasheado
-    const hashedRefreshToken = await hashPassword(refreshToken);
-    await UsuarioModel.findByIdAndUpdate(userId, {
-      $push: { refreshTokens: hashedRefreshToken }
-    });
 
     const responseData = sendTokenResponse(res, accessToken, refreshToken, user);
     res.status(200).json({
@@ -147,7 +164,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Verificar firma del token
+    // Verificar firma del token (si es válido y no expirado)
     let payload;
     try {
       payload = verifyRefreshToken(refreshToken);
@@ -156,24 +173,10 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Buscar usuario con sus refresh tokens
-    const user = await UsuarioModel.findById(payload.sub).select('+refreshTokens');
+    // Verificar que el usuario existe
+    const user = await UsuarioModel.findById(payload.sub);
     if (!user) {
       res.status(401).json({ message: 'Usuario no encontrado' });
-      return;
-    }
-
-    // Verificar que el refresh token esté en la lista de tokens válidos del usuario
-    let isValidToken = false;
-    for (const storedToken of user.refreshTokens) {
-      if (await comparePassword(refreshToken, storedToken)) {
-        isValidToken = true;
-        break;
-      }
-    }
-
-    if (!isValidToken) {
-      res.status(401).json({ message: 'Refresh token inválido' });
       return;
     }
 
@@ -181,12 +184,6 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     const userId = String(user._id);
     const newAccessToken = signAccessToken(userId);
     const newRefreshToken = signRefreshToken(userId);
-
-    // Hashear el nuevo refresh token y agregarlo
-    const hashedNewRefreshToken = await hashPassword(newRefreshToken);
-    await UsuarioModel.findByIdAndUpdate(userId, {
-      $push: { refreshTokens: hashedNewRefreshToken }
-    });
 
     // Enviar nueva cookie
     res.cookie('refreshToken', newRefreshToken, {
@@ -210,32 +207,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 // POST /api/auth/logout
 export async function logout(req: Request, res: Response): Promise<void> {
   try {
-    const refreshToken = req.cookies.refreshToken;
-
-    if (refreshToken) {
-      try {
-        const payload = verifyRefreshToken(refreshToken);
-        
-        // Buscar usuario y eliminar el refresh token específico
-        const user = await UsuarioModel.findById(payload.sub).select('+refreshTokens');
-        if (user) {
-          // Filtrar tokens que no coincidan con el actual
-          const updatedTokens = [];
-          for (const storedToken of user.refreshTokens) {
-            if (!(await comparePassword(refreshToken, storedToken))) {
-              updatedTokens.push(storedToken);
-            }
-          }
-          await UsuarioModel.findByIdAndUpdate(payload.sub, {
-            refreshTokens: updatedTokens
-          });
-        }
-      } catch (error) {
-        // Token inválido, pero igual limpiamos la cookie
-      }
-    }
-
-    // Limpiar cookie
+    // Limpiar cookie (el token expirará automáticamente en 7 días)
     res.clearCookie('refreshToken', { path: '/api/auth' });
     res.status(200).json({ message: 'Sesión cerrada exitosamente' });
   } catch (error) {
@@ -280,8 +252,8 @@ export async function me(req: Request, res: Response): Promise<void> {
 // GET /api/auth/usuarios (protegido)
 export async function getUsuarios(req: Request, res: Response): Promise<void> {
   try {
-    // Obtener todos los usuarios (sin password y sin refreshTokens)
-    const usuarios = await UsuarioModel.find({}).select('-password -refreshTokens');
+    // Obtener todos los usuarios (sin password)
+    const usuarios = await UsuarioModel.find({}).select('-password');
 
     // Formatear respuesta
     const usuariosResponse = usuarios.map(usuario => ({

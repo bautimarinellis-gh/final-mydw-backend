@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes';
 import discoverRoutes from './routes/discoverRoutes';
+import chatRoutes from './routes/chatRoutes';
 
 dotenv.config();
 
@@ -34,6 +35,9 @@ app.use('/api/auth', authRoutes);
 
 // Rutas de descubrimiento y matches
 app.use('/api/discover', discoverRoutes);
+
+// Rutas de chat
+app.use('/api/chat', chatRoutes);
 
 
 async function start(): Promise<void> {
