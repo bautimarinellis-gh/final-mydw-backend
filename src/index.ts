@@ -19,8 +19,24 @@ if (!mongoUri) {
 
 const MONGO_URI = mongoUri;
 
+// Configuración de CORS
+const allowedOrigins = [
+  'http://localhost:5174', // Frontend de desarrollo
+  'http://localhost:5173', // Frontend alternativo de desarrollo
+  process.env.FRONTEND_URL, // Frontend de producción (desde variable de entorno)
+].filter(Boolean) as string[]; // Filtra valores undefined/null
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Permite requests sin origen (como móvil apps o curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('No permitido por CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -44,8 +60,8 @@ async function start(): Promise<void> {
   await mongoose.connect(MONGO_URI);
   console.log('MongoDB conectado');
 
-  app.listen(PORT, () => {
-    console.log(`Servidor listo en http://localhost:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor listo en http://0.0.0.0:${PORT}`);
   });
 }
 
