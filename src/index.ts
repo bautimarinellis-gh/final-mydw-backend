@@ -1,26 +1,52 @@
 import cors from 'cors';
-import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
+import express, { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import cookieParser from 'cookie-parser';
+import authRoutes from './routes/authRoutes';
+import discoverRoutes from './routes/discoverRoutes';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT ?? 4000;
+const PORT = Number(process.env.PORT) || 3000;
+const mongoUri = process.env.MONGO_URI;
 
-app.use(cors());
+if (!mongoUri) {
+  throw new Error('Configura MONGO_URI en tu archivo .env');
+}
+
+const MONGO_URI = mongoUri;
+
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true,
+}));
 app.use(express.json());
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', service: 'university-match-api' });
+app.use(cookieParser());
+
+app.get('/', (_req: Request, res: Response) => {
+  res.send('Hola Mundo');
 });
 
-async function bootstrap() {
-  // TODO: Inicializar conexión con MongoDB (mongoose/mongo client).
-  // Ejemplo:
-  // await mongoose.connect(process.env.MONGODB_URI ?? '');
+// Rutas de autenticación
+app.use('/api/auth', authRoutes);
+
+// Rutas de descubrimiento y matches
+app.use('/api/discover', discoverRoutes);
+
+
+async function start(): Promise<void> {
+  await mongoose.connect(MONGO_URI);
+  console.log('MongoDB conectado');
 
   app.listen(PORT, () => {
-    console.log(`Servidor escuchando en http://localhost:${PORT}`);
+    console.log(`Servidor listo en http://localhost:${PORT}`);
   });
 }
 
-void bootstrap();
+void start().catch((error) => {
+  console.error('No se pudo iniciar el backend:', error);
+  process.exit(1);
+});
+
