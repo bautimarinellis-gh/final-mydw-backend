@@ -3,9 +3,11 @@ import dotenv from 'dotenv';
 import express, { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import authRoutes from './routes/authRoutes';
 import discoverRoutes from './routes/discoverRoutes';
 import chatRoutes from './routes/chatRoutes';
+import { getUsuarios } from './controllers/usuarioController';
 
 dotenv.config();
 
@@ -53,15 +55,21 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 app.use(cookieParser());
 
+// Servir archivos estáticos desde uploads/images
+app.use('/api/uploads/images', express.static(path.join(process.cwd(), 'uploads', 'images')));
+
 app.get('/', (_req: Request, res: Response) => {
   res.send('Hola Mundo');
 });
+
+// Ruta pública para obtener usuarios (SIN autenticación)
+app.get('/api/usuarios', getUsuarios);
 
 // Rutas de autenticación
 app.use('/api/auth', authRoutes);
@@ -82,8 +90,11 @@ async function start(): Promise<void> {
     throw error;
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor listo en http://0.0.0.0:${PORT}`);
+  // En desarrollo usar localhost, en producción 0.0.0.0 (necesario para Render)
+  const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
+  
+  app.listen(PORT, host, () => {
+    console.log(`Servidor listo en http://${host}:${PORT}`);
   });
 }
 

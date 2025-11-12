@@ -4,8 +4,10 @@ import { verifyAccessTokenMiddleware } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Todas las rutas de discover requieren autenticación
-router.get('/next', verifyAccessTokenMiddleware, getNextProfile);
+// Ruta pública para obtener perfiles (SIN autenticación)
+router.get('/next', getNextProfile);
+
+// Rutas protegidas (requieren autenticación)
 router.post('/swipe', verifyAccessTokenMiddleware, swipe);
 router.get('/matches', verifyAccessTokenMiddleware, getMatches);
 

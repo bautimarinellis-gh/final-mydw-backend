@@ -5,7 +5,12 @@ const usuarioSchema = new Schema({
   apellido: { type: String, required: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   password: { type: String, required: true, select: false },
-  descripcion: { type: String, trim: true },
+  descripcion: { type: String, trim: true, maxlength: 300 },
+  fotoPerfil: { 
+    type: String, 
+    trim: true, 
+    default: '' 
+  }, // Almacena URL externa (http:// o https://) o ruta local (/api/uploads/images/archivo.png)
   carrera: { type: String, required: true, trim: true },
   sede: { type: String, required: true, trim: true },
   edad: { type: Number, required: true },
