@@ -29,6 +29,7 @@ const allowedOrigins = [
   'http://localhost:5174', // Frontend de desarrollo
   'http://localhost:5173', // Frontend alternativo de desarrollo
   'http://localhost:3000', // Frontend alternativo de desarrollo
+  'https://final-mydw-frontend.onrender.com', // Frontend de producción en Render
   process.env.FRONTEND_URL, // Frontend de producción (desde variable de entorno)
 ].filter(Boolean) as string[]; // Filtra valores undefined/null
 
