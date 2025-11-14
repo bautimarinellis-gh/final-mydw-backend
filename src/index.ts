@@ -4,10 +4,13 @@ import express, { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import http from 'http';
 import authRoutes from './routes/authRoutes';
 import discoverRoutes from './routes/discoverRoutes';
 import chatRoutes from './routes/chatRoutes';
 import { getUsuarios } from './controllers/usuarioController';
+import { initializeSocketIO } from './socket/socketServer';
+import { setupSocketHandlers } from './socket/socketHandlers';
 
 dotenv.config();
 
@@ -90,11 +93,21 @@ async function start(): Promise<void> {
     throw error;
   }
 
+  // Crear servidor HTTP para Express y Socket.io
+  const httpServer = http.createServer(app);
+
+  // Inicializar Socket.io
+  const io = initializeSocketIO(httpServer, allowedOrigins);
+  
+  // Configurar handlers de Socket.io
+  setupSocketHandlers(io);
+
   // En desarrollo usar localhost, en producción 0.0.0.0 (necesario para Render)
   const host = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
   
-  app.listen(PORT, host, () => {
+  httpServer.listen(PORT, host, () => {
     console.log(`Servidor listo en http://${host}:${PORT}`);
+    console.log('WebSocket habilitado en Socket.io');
   });
 }
 

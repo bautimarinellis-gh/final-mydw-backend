@@ -7,33 +7,55 @@ import mongoose from 'mongoose';
 // GET /api/discover/next
 export async function getNextProfile(req: Request, res: Response): Promise<void> {
   try {
-    const userId = req.userId; // Puede ser undefined si no está autenticado
+    const userId = req.userId; // Ahora siempre debe estar presente con autenticación
 
-    let excluirIds: string[] = [];
+    let excluirIds: mongoose.Types.ObjectId[] = [];
 
     // Si hay usuario autenticado, aplicar filtros para excluir usuarios ya interactuados
     if (userId) {
-      // Obtener IDs de usuarios ya interactuados
-      const interacciones = await InteractionModel.find({ usuarioId: userId }).select('estudianteId');
-      const interactuadosIds = interacciones.map(i => i.estudianteId);
+      // Convertir userId a ObjectId válido
+      const userIdObjectId = new mongoose.Types.ObjectId(userId);
 
-      // Obtener IDs de usuarios con match
+      // Obtener IDs de usuarios ya interactuados (like o dislike) - usar ObjectId para consistencia
+      const interacciones = await InteractionModel.find({ usuarioId: userIdObjectId }).select('estudianteId');
+      
+      // Convertir y validar todos los IDs de interacciones
+      const interactuadosIds = interacciones
+        .map(i => i.estudianteId)
+        .filter(id => id != null && mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      // Obtener IDs de usuarios con match - usar ObjectId para consistencia
       const matches = await MatchModel.find({
         $or: [
-          { usuario1Id: userId },
-          { usuario2Id: userId }
+          { usuario1Id: userIdObjectId },
+          { usuario2Id: userIdObjectId }
         ]
       });
-      const matcheadosIds = matches.map(m => 
-        m.usuario1Id.toString() === userId ? m.usuario2Id : m.usuario1Id
-      );
+      
+      // Convertir y validar todos los IDs de matches
+      const matcheadosIds = matches
+        .map(m => {
+          // Comparar ObjectIds directamente para consistencia
+          const otroUsuarioId = m.usuario1Id.equals(userIdObjectId) ? m.usuario2Id : m.usuario1Id;
+          return otroUsuarioId;
+        })
+        .filter(id => id != null && mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
 
-      // Combinar IDs a excluir
-      excluirIds = [
-        ...interactuadosIds.map(id => id.toString()),
-        ...matcheadosIds.map(id => id.toString()),
-        userId
+      // Combinar IDs a excluir - asegurar que todos sean ObjectIds válidos y únicos
+      const todosLosIds = [
+        ...interactuadosIds,
+        ...matcheadosIds,
+        userIdObjectId
       ];
+
+      // Eliminar duplicados usando Set y filtrar solo ObjectIds válidos
+      excluirIds = Array.from(
+        new Set(todosLosIds.map(id => id.toString()))
+      )
+        .filter(idStr => mongoose.Types.ObjectId.isValid(idStr))
+        .map(idStr => new mongoose.Types.ObjectId(idStr));
     }
 
     // Buscar usuarios (con o sin filtros según si hay userId)
@@ -108,10 +130,14 @@ export async function swipe(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Verificar si ya existe interacción
+    // Convertir IDs a ObjectId para asegurar consistencia en la búsqueda
+    const userIdObjectId = new mongoose.Types.ObjectId(userId);
+    const estudianteIdObjectId = new mongoose.Types.ObjectId(estudianteId);
+
+    // Verificar si ya existe interacción (usando ObjectIds)
     const interaccionExistente = await InteractionModel.findOne({
-      usuarioId: userId,
-      estudianteId: estudianteId
+      usuarioId: userIdObjectId,
+      estudianteId: estudianteIdObjectId
     });
 
     if (interaccionExistente) {
@@ -119,10 +145,10 @@ export async function swipe(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Guardar interacción
+    // Guardar interacción (usando ObjectIds)
     await InteractionModel.create({
-      usuarioId: userId,
-      estudianteId: estudianteId,
+      usuarioId: userIdObjectId,
+      estudianteId: estudianteIdObjectId,
       tipo: tipo
     });
 
@@ -135,27 +161,27 @@ export async function swipe(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Si es "like", verificar si hay match
+    // Si es "like", verificar si hay match (usando ObjectIds)
     const interaccionRecíproca = await InteractionModel.findOne({
-      usuarioId: estudianteId,
-      estudianteId: userId,
+      usuarioId: estudianteIdObjectId,
+      estudianteId: userIdObjectId,
       tipo: 'like'
     });
 
     if (interaccionRecíproca) {
-      // Hay match! Verificar si ya existe el match (por las dudas)
+      // Hay match! Verificar si ya existe el match (usando ObjectIds)
       const matchExistente = await MatchModel.findOne({
         $or: [
-          { usuario1Id: userId, usuario2Id: estudianteId },
-          { usuario1Id: estudianteId, usuario2Id: userId }
+          { usuario1Id: userIdObjectId, usuario2Id: estudianteIdObjectId },
+          { usuario1Id: estudianteIdObjectId, usuario2Id: userIdObjectId }
         ]
       });
 
       if (!matchExistente) {
-        // Crear match
+        // Crear match (usando ObjectIds)
         const newMatch = await MatchModel.create({
-          usuario1Id: userId,
-          usuario2Id: estudianteId,
+          usuario1Id: userIdObjectId,
+          usuario2Id: estudianteIdObjectId,
           estado: 'activo'
         });
 
@@ -203,11 +229,14 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Buscar matches del usuario
+    // Convertir userId a ObjectId para consistencia
+    const userIdObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Buscar matches del usuario - usar ObjectId para consistencia
     const matches = await MatchModel.find({
       $or: [
-        { usuario1Id: userId },
-        { usuario2Id: userId }
+        { usuario1Id: userIdObjectId },
+        { usuario2Id: userIdObjectId }
       ],
       estado: 'activo'
     }).sort({ createdAt: -1 });
@@ -215,7 +244,8 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
     // Obtener información de los otros usuarios
     const matchesResponse = await Promise.all(
       matches.map(async (match) => {
-        const otroUsuarioId = match.usuario1Id.toString() === userId 
+        // Comparar ObjectIds directamente para consistencia
+        const otroUsuarioId = match.usuario1Id.equals(userIdObjectId) 
           ? match.usuario2Id 
           : match.usuario1Id;
 

@@ -14,17 +14,7 @@ export function verifyAccessTokenMiddleware(
 
     const authHeader = req.headers.authorization;
 
-    // Log para debugging (solo en desarrollo)
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Auth Middleware] ${req.method} ${req.path}`);
-      console.log(`[Auth Middleware] Authorization header:`, authHeader ? 'Presente' : 'Ausente');
-    }
-
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      // Log del error
-      console.warn(`[Auth Middleware] Token no proporcionado para ${req.method} ${req.path}`);
-      console.warn(`[Auth Middleware] Headers recibidos:`, Object.keys(req.headers));
-      
       res.status(401).json({ 
         message: 'Token de acceso no proporcionado',
         path: req.path,
@@ -40,10 +30,6 @@ export function verifyAccessTokenMiddleware(
       req.userId = payload.sub;
       next();
     } catch (tokenError) {
-      // Log del error de token
-      console.warn(`[Auth Middleware] Token inválido o expirado para ${req.method} ${req.path}`);
-      console.warn(`[Auth Middleware] Error:`, tokenError instanceof Error ? tokenError.message : tokenError);
-      
       // Distinguir entre token expirado y token inválido
       const isExpired = tokenError instanceof Error && 
         (tokenError.message.includes('expired') || tokenError.message.includes('jwt expired'));

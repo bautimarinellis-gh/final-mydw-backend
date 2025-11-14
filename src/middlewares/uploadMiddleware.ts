@@ -1,4 +1,4 @@
-import { Request } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -47,4 +47,25 @@ export const uploadProfileImage = multer({
 
 // Exportar la ruta del directorio de uploads
 export const UPLOADS_DIR = uploadsDir;
+
+// Middleware para manejar errores de multer (se ejecuta después de multer si hay error)
+export const handleUploadError = (err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'El archivo es demasiado grande. Tamaño máximo: 5MB' });
+    }
+    if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({ message: 'Campo de archivo incorrecto. Use el campo "image"' });
+    }
+    return res.status(400).json({ message: `Error al subir archivo: ${err.message}` });
+  }
+  if (err instanceof Error) {
+    if (err.message.includes('Solo se permiten archivos PNG, SVG y JPG/JPEG') || 
+        err.message.includes('Solo se permiten archivos PNG y SVG')) {
+      return res.status(400).json({ message: err.message });
+    }
+    return res.status(400).json({ message: `Error: ${err.message}` });
+  }
+  next(err);
+};
 
