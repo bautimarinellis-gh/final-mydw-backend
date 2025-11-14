@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { UsuarioModel } from '../models/usuarioSchema';
 import { hashPassword, comparePassword } from '../utils/password';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/tokenService';
-import { deleteImageFile } from '../utils/fileUtils';
+import { deleteImageFile, getImageUrl } from '../utils/fileUtils';
 
 // Helper para configurar cookies de refresh token
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
@@ -18,7 +18,7 @@ function setRefreshTokenCookie(res: Response, refreshToken: string): void {
 }
 
 // Helper para enviar tokens
-function sendTokenResponse(res: Response, accessToken: string, refreshToken: string, user: any) {
+function sendTokenResponse(res: Response, accessToken: string, refreshToken: string, user: any, req?: Request) {
   // Configurar cookie httpOnly para refresh token (más seguro, no accesible por JavaScript)
   setRefreshTokenCookie(res, refreshToken);
 
@@ -29,7 +29,7 @@ function sendTokenResponse(res: Response, accessToken: string, refreshToken: str
     apellido: user.apellido,
     email: user.email,
     descripcion: user.descripcion,
-    fotoPerfil: user.fotoPerfil,
+    fotoPerfil: getImageUrl(user.fotoPerfil, req),
     carrera: user.carrera,
     sede: user.sede,
     edad: user.edad,
@@ -142,7 +142,7 @@ export async function register(req: Request, res: Response): Promise<void> {
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
 
-    const responseData = sendTokenResponse(res, accessToken, refreshToken, newUser);
+    const responseData = sendTokenResponse(res, accessToken, refreshToken, newUser, req);
     res.status(201).json({
       message: 'Usuario registrado exitosamente',
       ...responseData,
@@ -182,7 +182,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
 
-    const responseData = sendTokenResponse(res, accessToken, refreshToken, user);
+    const responseData = sendTokenResponse(res, accessToken, refreshToken, user, req);
     res.status(200).json({
       message: 'Inicio de sesión exitoso',
       ...responseData,
@@ -276,7 +276,7 @@ export async function me(req: Request, res: Response): Promise<void> {
         apellido: user.apellido,
         email: user.email,
         descripcion: user.descripcion,
-        fotoPerfil: user.fotoPerfil,
+        fotoPerfil: getImageUrl(user.fotoPerfil, req),
         carrera: user.carrera,
         sede: user.sede,
         edad: user.edad,
@@ -398,7 +398,7 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
       apellido: updatedUser.apellido,
       email: updatedUser.email,
       descripcion: updatedUser.descripcion,
-      fotoPerfil: updatedUser.fotoPerfil,
+      fotoPerfil: getImageUrl(updatedUser.fotoPerfil, req),
       carrera: updatedUser.carrera,
       sede: updatedUser.sede,
       edad: updatedUser.edad,
@@ -453,13 +453,14 @@ export async function uploadProfileImage(req: Request, res: Response): Promise<v
     await user.save();
 
     // Formatear respuesta
+    const imageUrlAbsolute = getImageUrl(imageUrl, req);
     const userResponse = {
       id: user._id,
       nombre: user.nombre,
       apellido: user.apellido,
       email: user.email,
       descripcion: user.descripcion,
-      fotoPerfil: user.fotoPerfil,
+      fotoPerfil: imageUrlAbsolute,
       carrera: user.carrera,
       sede: user.sede,
       edad: user.edad,
@@ -469,7 +470,7 @@ export async function uploadProfileImage(req: Request, res: Response): Promise<v
     res.status(200).json({
       message: 'Imagen de perfil subida exitosamente',
       user: userResponse,
-      imageUrl: imageUrl,
+      imageUrl: imageUrlAbsolute,
     });
   } catch (error) {
     console.error('Error en uploadProfileImage:', error);
@@ -490,7 +491,7 @@ export async function getUsuarios(req: Request, res: Response): Promise<void> {
       apellido: usuario.apellido,
       email: usuario.email,
       descripcion: usuario.descripcion,
-      fotoPerfil: usuario.fotoPerfil,
+      fotoPerfil: getImageUrl(usuario.fotoPerfil, req),
       carrera: usuario.carrera,
       sede: usuario.sede,
       edad: usuario.edad,

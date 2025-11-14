@@ -18,6 +18,12 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const mongoUri = process.env.MONGO_URI;
 
+// Configurar Express para confiar en proxies reversos (necesario para producción)
+// Esto permite que req.protocol y req.get('host') funcionen correctamente detrás de un proxy
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', true);
+}
+
 if (!mongoUri) {
   throw new Error('Configura MONGO_URI en tu archivo .env');
 }

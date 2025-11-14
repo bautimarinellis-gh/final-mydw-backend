@@ -3,6 +3,7 @@ import { UsuarioModel } from '../models/usuarioSchema';
 import { InteractionModel } from '../models/interactionSchema';
 import { MatchModel } from '../models/matchSchema';
 import mongoose from 'mongoose';
+import { getImageUrl } from '../utils/fileUtils';
 
 // GET /api/discover/next
 export async function getNextProfile(req: Request, res: Response): Promise<void> {
@@ -82,7 +83,7 @@ export async function getNextProfile(req: Request, res: Response): Promise<void>
         id: estudiante._id,
         nombre: estudiante.nombre,
         apellido: estudiante.apellido,
-        fotoPerfil: estudiante.fotoPerfil,
+        fotoPerfil: getImageUrl(estudiante.fotoPerfil, req),
         descripcion: estudiante.descripcion,
         carrera: estudiante.carrera,
         sede: estudiante.sede,
@@ -194,7 +195,7 @@ export async function swipe(req: Request, res: Response): Promise<void> {
               id: estudiante._id,
               nombre: estudiante.nombre,
               apellido: estudiante.apellido,
-              fotoPerfil: estudiante.fotoPerfil,
+              fotoPerfil: getImageUrl(estudiante.fotoPerfil, req),
               descripcion: estudiante.descripcion,
               carrera: estudiante.carrera,
               sede: estudiante.sede,
@@ -261,7 +262,7 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
             id: otroUsuario._id,
             nombre: otroUsuario.nombre,
             apellido: otroUsuario.apellido,
-            fotoPerfil: otroUsuario.fotoPerfil,
+            fotoPerfil: getImageUrl(otroUsuario.fotoPerfil, req),
             descripcion: otroUsuario.descripcion,
             carrera: otroUsuario.carrera,
             sede: otroUsuario.sede,
