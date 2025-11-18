@@ -211,48 +211,10 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
   try {
     const { idToken, carrera, sede, edad, intereses } = req.body;
 
-    // Validar campos requeridos
+    // Validar que idToken esté presente (obligatorio siempre)
     if (!idToken) {
       res.status(400).json({ message: 'Token de ID de Google es requerido' });
       return;
-    }
-
-    if (!carrera || !sede || !edad) {
-      res.status(400).json({ message: 'Carrera, sede y edad son requeridos' });
-      return;
-    }
-
-    // Validar edad
-    if (typeof edad !== 'number' || edad < 18 || edad > 100) {
-      res.status(400).json({ message: 'La edad debe ser un número entre 18 y 100' });
-      return;
-    }
-
-    // Validar y procesar intereses
-    let interesesProcesados: string[] = [];
-    if (intereses !== undefined && intereses !== null) {
-      if (!Array.isArray(intereses)) {
-        res.status(400).json({ message: 'Los intereses deben ser un array' });
-        return;
-      }
-      // Validar que todos los intereses sean strings
-      const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
-      if (interesesInvalidos) {
-        res.status(400).json({ message: 'Todos los intereses deben ser strings' });
-        return;
-      }
-      
-      // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
-      interesesProcesados = intereses
-        .map((interes: string) => interes.trim())
-        .filter((interes: string) => interes !== '') // Eliminar strings vacíos
-        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
-      
-      // Validar que después de procesar no haya más de 5
-      if (interesesProcesados.length > 5) {
-        res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
-        return;
-      }
     }
 
     // Verificar token con Firebase Admin SDK
@@ -309,10 +271,100 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       ]
     });
 
-    let isNewUser = false;
+    // Determinar modo: si carrera, sede y edad están presentes -> REGISTRO, sino -> LOGIN
+    const isRegisterMode = carrera !== undefined && sede !== undefined && edad !== undefined;
 
-    if (user) {
-      // Usuario existe
+    if (isRegisterMode) {
+      // ========== MODO REGISTRO ==========
+      
+      // Validar campos requeridos para registro
+      if (!carrera || !sede || !edad) {
+        res.status(400).json({ message: 'Carrera, sede y edad son requeridos para el registro' });
+        return;
+      }
+
+      // Validar edad
+      if (typeof edad !== 'number' || edad < 18 || edad > 100) {
+        res.status(400).json({ message: 'La edad debe ser un número entre 18 y 100' });
+        return;
+      }
+
+      // Validar y procesar intereses
+      let interesesProcesados: string[] = [];
+      if (intereses !== undefined && intereses !== null) {
+        if (!Array.isArray(intereses)) {
+          res.status(400).json({ message: 'Los intereses deben ser un array' });
+          return;
+        }
+        // Validar que todos los intereses sean strings
+        const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
+        if (interesesInvalidos) {
+          res.status(400).json({ message: 'Todos los intereses deben ser strings' });
+          return;
+        }
+        
+        // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
+        interesesProcesados = intereses
+          .map((interes: string) => interes.trim())
+          .filter((interes: string) => interes !== '') // Eliminar strings vacíos
+          .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+        
+        // Validar que después de procesar no haya más de 5
+        if (interesesProcesados.length > 5) {
+          res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
+          return;
+        }
+      }
+
+      // Si el usuario ya existe, rechazar registro
+      if (user) {
+        res.status(409).json({ message: 'Este usuario ya está registrado. Por favor, inicia sesión' });
+        return;
+      }
+
+      // Verificar email único (por si acaso)
+      const existingEmail = await UsuarioModel.findOne({ email: email });
+      if (existingEmail) {
+        res.status(409).json({ message: 'El email ya está registrado' });
+        return;
+      }
+
+      // Crear nuevo usuario
+      user = await UsuarioModel.create({
+        nombre,
+        apellido: apellido || 'Sin apellido',
+        email: email,
+        googleId: googleId,
+        authProvider: 'google',
+        password: undefined, // No password para usuarios de Google
+        carrera,
+        sede,
+        edad,
+        fotoPerfil: picture || '',
+        intereses: interesesProcesados,
+      });
+
+      // Crear tokens JWT
+      const userId = String(user._id);
+      const accessToken = signAccessToken(userId);
+      const refreshToken = signRefreshToken(userId);
+
+      const responseData = sendTokenResponse(res, accessToken, refreshToken, user, req);
+      res.status(201).json({
+        message: 'Registro exitoso. Serás redirigido al inicio de sesión...',
+        ...responseData,
+      });
+
+    } else {
+      // ========== MODO LOGIN ==========
+      
+      // Si el usuario no existe, rechazar login
+      if (!user) {
+        res.status(404).json({ message: 'Usuario no registrado. Por favor, regístrate primero' });
+        return;
+      }
+
+      // Usuario existe - hacer login
       // Si el usuario existe pero no tiene googleId, vincular la cuenta
       if (!user.googleId) {
         user.googleId = googleId;
@@ -332,43 +384,18 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
         res.status(409).json({ message: 'Esta cuenta de Google ya está asociada con otro usuario' });
         return;
       }
-      // Usuario ya existía con este googleId, es un login
-      isNewUser = false;
-    } else {
-      // Usuario no existe, crear nuevo
-      // Verificar email único (por si acaso)
-      const existingEmail = await UsuarioModel.findOne({ email: email });
-      if (existingEmail) {
-        res.status(409).json({ message: 'El email ya está registrado' });
-        return;
-      }
 
-      user = await UsuarioModel.create({
-        nombre,
-        apellido: apellido || 'Sin apellido',
-        email: email,
-        googleId: googleId,
-        authProvider: 'google',
-        password: undefined, // No password para usuarios de Google
-        carrera,
-        sede,
-        edad,
-        fotoPerfil: picture || '',
-        intereses: interesesProcesados,
+      // Crear tokens JWT
+      const userId = String(user._id);
+      const accessToken = signAccessToken(userId);
+      const refreshToken = signRefreshToken(userId);
+
+      const responseData = sendTokenResponse(res, accessToken, refreshToken, user, req);
+      res.status(200).json({
+        message: 'Inicio de sesión con Google exitoso',
+        ...responseData,
       });
-      isNewUser = true;
     }
-
-    // Crear tokens JWT (igual que login normal)
-    const userId = String(user._id);
-    const accessToken = signAccessToken(userId);
-    const refreshToken = signRefreshToken(userId);
-
-    const responseData = sendTokenResponse(res, accessToken, refreshToken, user, req);
-    res.status(isNewUser ? 201 : 200).json({
-      message: isNewUser ? 'Usuario registrado con Google exitosamente' : 'Inicio de sesión con Google exitoso',
-      ...responseData,
-    });
   } catch (error) {
     console.error('Error en loginWithGoogle:', error);
     
