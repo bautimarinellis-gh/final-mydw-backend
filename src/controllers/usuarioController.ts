@@ -3,6 +3,7 @@ import { UsuarioModel } from '../models/usuarioSchema';
 import { hashPassword, comparePassword } from '../utils/password';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/tokenService';
 import { deleteImageFile, getImageUrl } from '../utils/fileUtils';
+import { auth } from '../config/firebase';
 
 // Helper para configurar cookies de refresh token
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
@@ -170,6 +171,18 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Verificar que el usuario no se haya registrado con Google
+    if (user.authProvider === 'google') {
+      res.status(401).json({ message: 'Esta cuenta está asociada con Google. Por favor, inicia sesión con Google' });
+      return;
+    }
+
+    // Verificar que el usuario tenga password (debe tenerlo si authProvider es 'email')
+    if (!user.password) {
+      res.status(401).json({ message: 'Credenciales inválidas' });
+      return;
+    }
+
     // Verificar password
     const isValidPassword = await comparePassword(password, user.password);
     if (!isValidPassword) {
@@ -189,6 +202,188 @@ export async function login(req: Request, res: Response): Promise<void> {
     });
   } catch (error) {
     console.error('Error en login:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+
+// POST /api/auth/google
+export async function loginWithGoogle(req: Request, res: Response): Promise<void> {
+  try {
+    const { idToken, carrera, sede, edad, intereses } = req.body;
+
+    // Validar campos requeridos
+    if (!idToken) {
+      res.status(400).json({ message: 'Token de ID de Google es requerido' });
+      return;
+    }
+
+    if (!carrera || !sede || !edad) {
+      res.status(400).json({ message: 'Carrera, sede y edad son requeridos' });
+      return;
+    }
+
+    // Validar edad
+    if (typeof edad !== 'number' || edad < 18 || edad > 100) {
+      res.status(400).json({ message: 'La edad debe ser un número entre 18 y 100' });
+      return;
+    }
+
+    // Validar y procesar intereses
+    let interesesProcesados: string[] = [];
+    if (intereses !== undefined && intereses !== null) {
+      if (!Array.isArray(intereses)) {
+        res.status(400).json({ message: 'Los intereses deben ser un array' });
+        return;
+      }
+      // Validar que todos los intereses sean strings
+      const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
+      if (interesesInvalidos) {
+        res.status(400).json({ message: 'Todos los intereses deben ser strings' });
+        return;
+      }
+      
+      // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
+      interesesProcesados = intereses
+        .map((interes: string) => interes.trim())
+        .filter((interes: string) => interes !== '') // Eliminar strings vacíos
+        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+      
+      // Validar que después de procesar no haya más de 5
+      if (interesesProcesados.length > 5) {
+        res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
+        return;
+      }
+    }
+
+    // Verificar token con Firebase Admin SDK
+    let decodedToken;
+    try {
+      decodedToken = await auth.verifyIdToken(idToken);
+    } catch (error) {
+      console.error('Error al verificar token de Google:', error);
+      res.status(401).json({ message: 'Token de Google inválido o expirado' });
+      return;
+    }
+
+    // Extraer información de Google
+    const googleId = decodedToken.uid;
+    const email = decodedToken.email?.toLowerCase();
+    const name = decodedToken.name || '';
+    const picture = decodedToken.picture || '';
+
+    if (!email) {
+      res.status(400).json({ message: 'No se pudo obtener el email de la cuenta de Google' });
+      return;
+    }
+
+    // Parsear nombre completo para obtener nombre y apellido
+    // Si Google proporciona given_name y family_name, usarlos; si no, dividir el nombre
+    let nombre = decodedToken.given_name || '';
+    let apellido = decodedToken.family_name || '';
+
+    if (!nombre || !apellido) {
+      // Intentar dividir el nombre completo
+      const nameParts = name.trim().split(' ');
+      if (nameParts.length >= 2) {
+        nombre = nameParts[0];
+        apellido = nameParts.slice(1).join(' ');
+      } else if (nameParts.length === 1) {
+        nombre = nameParts[0];
+        apellido = '';
+      } else {
+        nombre = email.split('@')[0]; // Usar parte antes del @ como nombre
+        apellido = '';
+      }
+    }
+
+    if (!nombre || nombre.trim() === '') {
+      res.status(400).json({ message: 'No se pudo obtener el nombre de la cuenta de Google' });
+      return;
+    }
+
+    // Buscar usuario existente por email o googleId
+    let user = await UsuarioModel.findOne({
+      $or: [
+        { email: email },
+        { googleId: googleId }
+      ]
+    });
+
+    let isNewUser = false;
+
+    if (user) {
+      // Usuario existe
+      // Si el usuario existe pero no tiene googleId, vincular la cuenta
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.authProvider = 'google';
+        // Actualizar foto de perfil si viene de Google y el usuario no tiene una
+        if (picture && (!user.fotoPerfil || user.fotoPerfil.trim() === '')) {
+          user.fotoPerfil = picture;
+        }
+        // Actualizar nombre y apellido si fueron actualizados
+        user.nombre = nombre;
+        if (apellido && apellido.trim() !== '') {
+          user.apellido = apellido;
+        }
+        await user.save();
+      } else if (user.googleId !== googleId) {
+        // Google ID diferente - conflicto
+        res.status(409).json({ message: 'Esta cuenta de Google ya está asociada con otro usuario' });
+        return;
+      }
+      // Usuario ya existía con este googleId, es un login
+      isNewUser = false;
+    } else {
+      // Usuario no existe, crear nuevo
+      // Verificar email único (por si acaso)
+      const existingEmail = await UsuarioModel.findOne({ email: email });
+      if (existingEmail) {
+        res.status(409).json({ message: 'El email ya está registrado' });
+        return;
+      }
+
+      user = await UsuarioModel.create({
+        nombre,
+        apellido: apellido || 'Sin apellido',
+        email: email,
+        googleId: googleId,
+        authProvider: 'google',
+        password: undefined, // No password para usuarios de Google
+        carrera,
+        sede,
+        edad,
+        fotoPerfil: picture || '',
+        intereses: interesesProcesados,
+      });
+      isNewUser = true;
+    }
+
+    // Crear tokens JWT (igual que login normal)
+    const userId = String(user._id);
+    const accessToken = signAccessToken(userId);
+    const refreshToken = signRefreshToken(userId);
+
+    const responseData = sendTokenResponse(res, accessToken, refreshToken, user, req);
+    res.status(isNewUser ? 201 : 200).json({
+      message: isNewUser ? 'Usuario registrado con Google exitosamente' : 'Inicio de sesión con Google exitoso',
+      ...responseData,
+    });
+  } catch (error) {
+    console.error('Error en loginWithGoogle:', error);
+    
+    // Manejar errores específicos
+    if (error instanceof Error) {
+      if (error.message.includes('email')) {
+        res.status(409).json({ message: 'El email ya está registrado' });
+        return;
+      }
+      if (error.message.includes('googleId')) {
+        res.status(409).json({ message: 'Esta cuenta de Google ya está asociada con otro usuario' });
+        return;
+      }
+    }
+    
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 }

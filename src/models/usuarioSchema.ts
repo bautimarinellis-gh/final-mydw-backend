@@ -4,7 +4,26 @@ const usuarioSchema = new Schema({
   nombre: { type: String, required: true, trim: true },
   apellido: { type: String, required: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-  password: { type: String, required: true, select: false },
+  password: { 
+    type: String, 
+    required: function(this: any) {
+      // Password requerido solo para autenticación con email
+      return this.authProvider === 'email';
+    }, 
+    select: false 
+  },
+  authProvider: { 
+    type: String, 
+    enum: ['email', 'google'], 
+    default: 'email',
+    required: true 
+  },
+  googleId: { 
+    type: String, 
+    unique: true, 
+    sparse: true, 
+    trim: true 
+  },
   descripcion: { type: String, trim: true, maxlength: 300 },
   fotoPerfil: { 
     type: String, 
