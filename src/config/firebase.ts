@@ -10,24 +10,6 @@ if (process.env.NODE_ENV !== 'production') {
 // Inicializar Firebase Admin SDK solo si no está ya inicializado
 if (!admin.apps.length) {
   try {
-    // Debug: mostrar qué variables están disponibles (sin valores sensibles)
-    const hasProjectId = !!process.env.FIREBASE_PROJECT_ID;
-    const hasClientEmail = !!process.env.FIREBASE_CLIENT_EMAIL;
-    const hasPrivateKey = !!process.env.FIREBASE_PRIVATE_KEY;
-    
-    console.log('🔍 Verificando variables de Firebase:');
-    console.log(`  FIREBASE_PROJECT_ID: ${hasProjectId ? '✅' : '❌'}`);
-    console.log(`  FIREBASE_CLIENT_EMAIL: ${hasClientEmail ? '✅' : '❌'}`);
-    console.log(`  FIREBASE_PRIVATE_KEY: ${hasPrivateKey ? '✅' : '❌'}`);
-    
-    if (process.env.NODE_ENV === 'production' && (!hasProjectId || !hasClientEmail || !hasPrivateKey)) {
-      console.error('\n💡 IMPORTANTE: En Render, asegúrate de:');
-      console.error('   1. Ir a tu servicio "final-mydw-backend-1"');
-      console.error('   2. Pestaña "Environment"');
-      console.error('   3. Asociar el Env Group "backend env\'s" o agregar las variables directamente');
-      console.error('   4. Hacer un nuevo despliegue después de asociar las variables\n');
-    }
-
     const serviceAccount = {
       type: process.env.FIREBASE_TYPE || 'service_account',
       project_id: process.env.FIREBASE_PROJECT_ID,
@@ -58,8 +40,6 @@ if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount as admin.ServiceAccount)
     });
-    
-    console.log('✅ Firebase Admin SDK inicializado correctamente');
   } catch (error) {
     console.error('❌ Error al inicializar Firebase Admin SDK:', error);
     throw error;
