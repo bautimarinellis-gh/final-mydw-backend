@@ -64,7 +64,9 @@ export async function getNextProfile(req: Request, res: Response): Promise<void>
       ? { _id: { $nin: excluirIds } }
       : {};
 
-    const estudiantes = await UsuarioModel.find(query);
+    // Excluir usuarios desactivados
+    const finalQuery = query && Object.keys(query).length > 0 ? { ...query, activo: true } : { activo: true };
+    const estudiantes = await UsuarioModel.find(finalQuery);
 
     if (estudiantes.length === 0) {
       res.status(200).json({
@@ -233,7 +235,7 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
     // Convertir userId a ObjectId para consistencia
     const userIdObjectId = new mongoose.Types.ObjectId(userId);
 
-    // Buscar matches del usuario - usar ObjectId para consistencia
+    // Buscar matches del usuario - solo activos
     const matches = await MatchModel.find({
       $or: [
         { usuario1Id: userIdObjectId },
@@ -242,7 +244,7 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
       estado: 'activo'
     }).sort({ createdAt: -1 });
 
-    // Obtener información de los otros usuarios
+    // Obtener información de los otros usuarios y filtrar si están inactivos
     const matchesResponse = await Promise.all(
       matches.map(async (match) => {
         // Comparar ObjectIds directamente para consistencia
@@ -252,7 +254,8 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
 
         const otroUsuario = await UsuarioModel.findById(otroUsuarioId);
 
-        if (!otroUsuario) {
+        // Si el otro usuario está inactivo, filtrar este match
+        if (!otroUsuario || !otroUsuario.activo) {
           return null;
         }
 
@@ -274,7 +277,7 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
       })
     );
 
-    // Filtrar nulls (por si algún usuario fue eliminado)
+    // Filtrar nulls (matches con usuarios inactivos)
     const matchesValidos = matchesResponse.filter(m => m !== null);
 
     res.status(200).json({
