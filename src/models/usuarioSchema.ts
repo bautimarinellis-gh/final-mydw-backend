@@ -30,6 +30,7 @@ const usuarioSchema = new Schema({
     trim: true, 
     default: '' 
   }, // Almacena URL externa (http:// o https://) o ruta local (/api/uploads/images/archivo.png)
+  activo: { type: Boolean, default: true },
   carrera: { type: String, required: true, trim: true },
   sede: { type: String, required: true, trim: true },
   edad: { type: Number, required: true },

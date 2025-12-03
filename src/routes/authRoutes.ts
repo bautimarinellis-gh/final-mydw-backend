@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { register, login, loginWithGoogle, refresh, logout, me, getUsuarios, updateProfile, uploadProfileImage } from '../controllers/usuarioController';
-import { verifyAccessTokenMiddleware } from '../middlewares/authMiddleware';
+import { register, login, loginWithGoogle, refresh, logout, me, getUsuarios, updateProfile, uploadProfileImage, deactivateAccount, deleteAccount } from '../controllers/usuarioController';
+import { verifyAccessTokenMiddleware, verifyUserActiveMiddleware } from '../middlewares/authMiddleware';
 import { uploadProfileImage as uploadMiddleware, handleUploadError } from '../middlewares/uploadMiddleware';
 
 const router = Router();
@@ -13,11 +13,12 @@ router.post('/refresh', refresh); // Usa cookies, no requiere token en header
 router.post('/logout', logout); // Limpia cookies, puede ser público
 
 // Rutas protegidas (requieren autenticación con token JWT)
-router.get('/me', verifyAccessTokenMiddleware, me); // Obtener perfil del usuario autenticado
-router.patch('/profile', verifyAccessTokenMiddleware, updateProfile); // Actualizar perfil del usuario autenticado
+router.get('/me', verifyAccessTokenMiddleware, verifyUserActiveMiddleware, me); // Obtener perfil del usuario autenticado
+router.patch('/profile', verifyAccessTokenMiddleware, verifyUserActiveMiddleware, updateProfile); // Actualizar perfil del usuario autenticado
 // Subir imagen de perfil - el error handler se ejecuta si multer falla
 router.post('/upload-profile-image', 
   verifyAccessTokenMiddleware, 
+  verifyUserActiveMiddleware,
   (req: Request, res: Response, next: NextFunction) => {
     uploadMiddleware.single('image')(req, res, (err) => {
       if (err) {
@@ -28,7 +29,11 @@ router.post('/upload-profile-image',
   },
   uploadProfileImage
 );
-router.get('/usuarios', verifyAccessTokenMiddleware, getUsuarios); // Listar usuarios (protegido)
+router.get('/usuarios', verifyAccessTokenMiddleware, verifyUserActiveMiddleware, getUsuarios); // Listar usuarios (protegido)
+// Desactivar cuenta (solo el usuario puede desactivar la suya)
+router.patch('/me/deactivate', verifyAccessTokenMiddleware, deactivateAccount);
+// Eliminar cuenta del usuario autenticado
+router.delete('/me', verifyAccessTokenMiddleware, deleteAccount);
 
 export default router;
 

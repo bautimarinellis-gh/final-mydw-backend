@@ -51,6 +51,11 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
 
         const otroUsuario = await UsuarioModel.findById(otroUsuarioId);
         
+        // Si el otro usuario está inactivo, filtrar esta conversación
+        if (!otroUsuario || !otroUsuario.activo) {
+          return null;
+        }
+        
         // Obtener último mensaje
         const ultimoMensaje = await MessageModel.findOne({ matchId: match._id })
           .sort({ createdAt: -1 })
@@ -62,10 +67,6 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
           destinatarioId: userId,
           leido: false
         });
-
-        if (!otroUsuario) {
-          return null;
-        }
 
         return {
           matchId: match._id,
@@ -90,7 +91,7 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
       })
     );
 
-    // Filtrar nulls y ordenar por último mensaje
+    // Filtrar nulls (conversaciones con usuarios inactivos) y ordenar por último mensaje
     const conversacionesValidas = conversaciones
       .filter(c => c !== null)
       .sort((a, b) => {

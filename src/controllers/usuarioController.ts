@@ -4,6 +4,9 @@ import { hashPassword, comparePassword } from '../utils/password';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/tokenService';
 import { deleteImageFile, getImageUrl } from '../utils/fileUtils';
 import { auth } from '../config/firebase';
+import { InteractionModel } from '../models/interactionSchema';
+import { MatchModel } from '../models/matchSchema';
+import { MessageModel } from '../models/messageSchema';
 
 // Helper para configurar cookies de refresh token
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
@@ -188,6 +191,13 @@ export async function login(req: Request, res: Response): Promise<void> {
     if (!isValidPassword) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
+    }
+
+    // Si la cuenta estaba desactivada, reactivarla automáticamente
+    if (!user.activo) {
+      user.activo = true;
+      await user.save();
+      console.log(`[Auth] Cuenta reactivada: ${email}`);
     }
 
     // Crear tokens
@@ -383,6 +393,13 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
         // Google ID diferente - conflicto
         res.status(409).json({ message: 'Esta cuenta de Google ya está asociada con otro usuario' });
         return;
+      }
+
+      // Si la cuenta estaba desactivada, reactivarla automáticamente
+      if (!user.activo) {
+        user.activo = true;
+        await user.save();
+        console.log(`[Auth] Cuenta reactivada con Google: ${email}`);
       }
 
       // Crear tokens JWT
@@ -704,7 +721,8 @@ export async function uploadProfileImage(req: Request, res: Response): Promise<v
 export async function getUsuarios(req: Request, res: Response): Promise<void> {
   try {
     // Obtener todos los usuarios (sin password)
-    const usuarios = await UsuarioModel.find({}).select('-password');
+    // Excluir usuarios desactivados
+    const usuarios = await UsuarioModel.find({ activo: true }).select('-password');
 
     // Formatear respuesta
     const usuariosResponse = usuarios.map(usuario => ({
@@ -729,6 +747,101 @@ export async function getUsuarios(req: Request, res: Response): Promise<void> {
     });
   } catch (error) {
     console.error('Error en getUsuarios:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+
+// PATCH /api/auth/me/deactivate
+export async function deactivateAccount(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.userId) {
+      res.status(401).json({ message: 'No autenticado' });
+      return;
+    }
+
+    const user = await UsuarioModel.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ message: 'Usuario no encontrado' });
+      return;
+    }
+
+    if (!user.activo) {
+      res.status(400).json({ message: 'La cuenta ya está desactivada' });
+      return;
+    }
+
+    user.activo = false;
+    await user.save();
+
+    // Limpiar cookie de refresh para forzar logout en cliente
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/',
+    });
+
+    res.status(200).json({ message: 'Cuenta desactivada exitosamente' });
+  } catch (error) {
+    console.error('Error en deactivateAccount:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+
+// DELETE /api/auth/me
+export async function deleteAccount(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.userId) {
+      res.status(401).json({ message: 'No autenticado' });
+      return;
+    }
+
+    const user = await UsuarioModel.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ message: 'Usuario no encontrado' });
+      return;
+    }
+
+    // Eliminar imagen de perfil del filesystem si es ruta local
+    if (user.fotoPerfil && user.fotoPerfil.startsWith('/api/uploads/images/')) {
+      try {
+        deleteImageFile(user.fotoPerfil);
+      } catch (err) {
+        console.warn('No se pudo eliminar la imagen de perfil:', err);
+      }
+    }
+
+    // Eliminar interacciones donde el usuario es autor o objetivo
+    await InteractionModel.deleteMany({
+      $or: [ { usuarioId: user._id }, { estudianteId: user._id } ]
+    });
+
+    // Eliminar matches donde participa
+    await MatchModel.deleteMany({
+      $or: [ { usuario1Id: user._id }, { usuario2Id: user._id } ]
+    });
+
+    // Eliminar mensajes enviados o recibidos
+    await MessageModel.deleteMany({
+      $or: [ { remitenteId: user._id }, { destinatarioId: user._id } ]
+    });
+
+    // Finalmente eliminar usuario
+    await UsuarioModel.findByIdAndDelete(user._id);
+
+    // Limpiar cookie de refresh
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      path: '/',
+    });
+
+    res.status(200).json({ message: 'Cuenta eliminada exitosamente' });
+  } catch (error) {
+    console.error('Error en deleteAccount:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 }
