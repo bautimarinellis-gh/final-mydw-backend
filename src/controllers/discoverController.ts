@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import { getImageUrl } from '../utils/fileUtils';
 
 // GET /api/discover/next
+// GET /api/discover/next
 export async function getNextProfile(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.userId; // Ahora siempre debe estar presente con autenticación
@@ -59,13 +60,55 @@ export async function getNextProfile(req: Request, res: Response): Promise<void>
         .map(idStr => new mongoose.Types.ObjectId(idStr));
     }
 
+    // 🔹 NUEVO: leer filtros desde query
+    const {
+      sede,
+      carrera,
+      edadMin,
+      edadMax,
+      interes, // un interés concreto
+      q,       // búsqueda de texto (nombre / apellido / descripción)
+    } = req.query;
+
+    const filtrosExtra: any = {};
+
+    if (sede) filtrosExtra.sede = sede;
+    if (carrera) filtrosExtra.carrera = carrera;
+
+    if (edadMin || edadMax) {
+      filtrosExtra.edad = {};
+      if (edadMin) filtrosExtra.edad.$gte = Number(edadMin);
+      if (edadMax) filtrosExtra.edad.$lte = Number(edadMax);
+    }
+
+    if (interes) {
+      filtrosExtra.intereses = { $in: [interes] }; // coincide con al menos ese interés
+    }
+
+    if (q) {
+      const regex = new RegExp(String(q), 'i');
+      filtrosExtra.$or = [
+        { nombre: regex },
+        { apellido: regex },
+        { descripcion: regex },
+      ];
+    }
+
     // Buscar usuarios (con o sin filtros según si hay userId)
-    const query = excluirIds.length > 0 
+    const baseQuery = excluirIds.length > 0 
       ? { _id: { $nin: excluirIds } }
       : {};
 
-    // Excluir usuarios desactivados
-    const finalQuery = query && Object.keys(query).length > 0 ? { ...query, activo: true } : { activo: true };
+    // 🔹 finalQuery combina:
+    // - excluirIds (likes/dislikes/matches + uno mismo)
+    // - filtros extra (sede, carrera, edad, interés, búsqueda)
+    // - solo usuarios activos
+    const finalQuery = {
+      ...baseQuery,
+      ...filtrosExtra,
+      activo: true,
+    };
+
     const estudiantes = await UsuarioModel.find(finalQuery);
 
     if (estudiantes.length === 0) {
@@ -290,3 +333,192 @@ export async function getMatches(req: Request, res: Response): Promise<void> {
   }
 }
 
+export const getFilteredProfiles = async (req: Request, res: Response) => {
+  try {
+    // ID del usuario logueado (tu middleware la suele poner en req.userId)
+    const userId = (req as any).userId;
+
+    const {
+      sede,
+      carrera,
+      edadMin,
+      edadMax,
+      interes, // un interés concreto
+      q,       // búsqueda de texto (nombre / apellido / descripción)
+      page = '1',
+      limit = '20',
+    } = req.query;
+
+    const filtros: any = {
+      activo: true,
+    };
+
+    // No mostrarte a vos mismo
+    if (userId) {
+      filtros._id = { $ne: userId };
+    }
+
+    if (sede) filtros.sede = sede;
+    if (carrera) filtros.carrera = carrera;
+
+    if (edadMin || edadMax) {
+      filtros.edad = {};
+      if (edadMin) filtros.edad.$gte = Number(edadMin);
+      if (edadMax) filtros.edad.$lte = Number(edadMax);
+    }
+
+    if (interes) {
+      filtros.intereses = { $in: [interes] }; // coincide con al menos ese interés
+    }
+
+    if (q) {
+      const regex = new RegExp(String(q), 'i');
+      filtros.$or = [
+        { nombre: regex },
+        { apellido: regex },
+        { descripcion: regex },
+      ];
+    }
+
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    const [usuarios, total] = await Promise.all([
+      UsuarioModel.find(filtros)
+        .sort({ createdAt: -1 }) // opcional: los más nuevos primero
+        .skip(skip)
+        .limit(limitNum),
+      UsuarioModel.countDocuments(filtros),
+    ]);
+
+    const perfiles = usuarios.map(u => ({
+      id: u._id,
+      nombre: u.nombre,
+      apellido: u.apellido,
+      descripcion: u.descripcion,
+      fotoPerfil: getImageUrl(u.fotoPerfil, req),
+      carrera: u.carrera,
+      sede: u.sede,
+      edad: u.edad,
+      intereses: u.intereses,
+      createdAt: u.createdAt,
+    }));
+
+    res.status(200).json({
+      message: 'Perfiles obtenidos con filtros',
+      perfiles,
+      pagination: {
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (error) {
+    console.error('Error en getFilteredProfiles:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+// GET /api/discover/filters
+export async function getFilterOptions(req: Request, res: Response): Promise<void> {
+  try {
+    // Solo usuarios activos
+    const [carreras, sedes] = await Promise.all([
+      UsuarioModel.distinct('carrera', { activo: true }),
+      UsuarioModel.distinct('sede', { activo: true }),
+    ]);
+
+    res.status(200).json({
+      carreras,
+      sedes,
+    });
+  } catch (error) {
+    console.error('Error en getFilterOptions:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+// GET /api/discover/likes
+export async function getLikeHistory(req: Request, res: Response): Promise<void> {
+  try {
+    const userId = req.userId;
+
+    if (!userId) {
+      res.status(401).json({ message: 'No autenticado' });
+      return;
+    }
+
+    const userIdObjectId = new mongoose.Types.ObjectId(userId);
+
+    // Todas las interacciones like realizadas por este usuario (más recientes primero)
+    const likes = await InteractionModel.find({
+      usuarioId: userIdObjectId,
+      tipo: 'like',
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (likes.length === 0) {
+      res.status(200).json({
+        likes: [],
+        total: 0,
+      });
+      return;
+    }
+
+    // Obtener los ids de los estudiantes likeados
+    const estudianteIds = Array.from(
+      new Set(
+        likes
+          .map(like => like.estudianteId)
+          .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+          .map(id => new mongoose.Types.ObjectId(id as any).toString())
+      )
+    ).map(idStr => new mongoose.Types.ObjectId(idStr));
+
+    // Traer los usuarios correspondientes
+    const usuarios = await UsuarioModel.find({
+      _id: { $in: estudianteIds },
+      activo: true, // solo cuentas activas
+    });
+
+    // Armar un map para acceder rápido por id
+    const usuariosMap = new Map(
+      usuarios.map(u => [u._id.toString(), u])
+    );
+
+    // Armar respuesta respetando el orden de los likes
+    const likesResponse = likes
+      .map(like => {
+        const u = usuariosMap.get(String(like.estudianteId));
+        if (!u) return null;
+
+        return {
+          id: like._id,
+          createdAt: like.createdAt,
+          estudiante: {
+            id: u._id,
+            nombre: u.nombre,
+            apellido: u.apellido,
+            fotoPerfil: getImageUrl(u.fotoPerfil, req),
+            descripcion: u.descripcion,
+            carrera: u.carrera,
+            sede: u.sede,
+            edad: u.edad,
+            intereses: u.intereses,
+          },
+        };
+      })
+      .filter(item => item !== null);
+
+    res.status(200).json({
+      likes: likesResponse,
+      total: likesResponse.length,
+    });
+  } catch (error) {
+    console.error('Error en getLikeHistory:', error);
+    res.status(500).json({ message: 'Error interno del servidor' });
+  }
+}
+
+;
