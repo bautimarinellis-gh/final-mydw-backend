@@ -26,7 +26,42 @@ async function validarMatch(userId: string, matchId: string, otroUsuarioId: stri
 // Mapa para rastrear usuarios conectados: userId -> socketId
 const usuariosConectados = new Map<string, string>();
 
+// Variable global para almacenar la instancia de io
+let ioInstance: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
+
+// Función para obtener la instancia de io
+export function getIOInstance(): Server<ClientToServerEvents, ServerToClientEvents> | null {
+  return ioInstance;
+}
+
+// Función helper para emitir mensajes nuevos (puede ser llamada desde HTTP o WebSocket)
+export function emitirMensajeNuevo(
+  mensajePayload: MensajeNuevoPayload,
+  destinatarioId: string,
+  matchId: string
+): void {
+  if (!ioInstance) {
+    console.warn('[Socket] No hay instancia de io disponible para emitir mensaje');
+    return;
+  }
+  
+  const io = ioInstance;
+  // Emitir al destinatario si está conectado
+  const destinatarioSocketId = usuariosConectados.get(destinatarioId);
+  if (destinatarioSocketId) {
+    io.to(destinatarioSocketId).emit('mensaje:nuevo', mensajePayload);
+    console.log(`[Socket] Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (conectado)`);
+  } else {
+    console.log(`[Socket] Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (no conectado)`);
+  }
+
+  // También emitir en el room del match para sincronización
+  io.to(`match:${matchId}`).emit('mensaje:nuevo', mensajePayload);
+}
+
 export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
+  // Guardar la instancia de io para uso global
+  ioInstance = io;
   io.on('connection', (socket: AuthenticatedSocket) => {
     const userId = socket.data.userId;
     
@@ -115,17 +150,8 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
           createdAt: nuevoMensaje.createdAt
         };
 
-        // Emitir al destinatario si está conectado
-        const destinatarioSocketId = usuariosConectados.get(destinatarioId);
-        if (destinatarioSocketId) {
-          io.to(destinatarioSocketId).emit('mensaje:nuevo', mensajePayload);
-          console.log(`[Socket] Mensaje enviado de ${userId} a ${destinatarioId} (conectado)`);
-        } else {
-          console.log(`[Socket] Mensaje enviado de ${userId} a ${destinatarioId} (no conectado)`);
-        }
-
-        // También emitir en el room del match para sincronización
-        io.to(`match:${matchId}`).emit('mensaje:nuevo', mensajePayload);
+        // Emitir mensaje usando la función helper
+        emitirMensajeNuevo(mensajePayload, destinatarioId, matchId);
 
         // Confirmar al remitente
         callback({ success: true, mensaje: mensajePayload });

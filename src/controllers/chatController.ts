@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { MatchModel } from '../models/matchSchema';
 import { MessageModel } from '../models/messageSchema';
 import { UsuarioModel } from '../models/usuarioSchema';
+import { emitirMensajeNuevo } from '../socket/socketHandlers';
 
 // Helper: Validar que existe match activo entre dos usuarios
 async function validarMatch(userId: string, matchId: string, otroUsuarioId: string): Promise<boolean> {
@@ -244,6 +245,20 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
       contenido: contenido.trim(),
       leido: false
     });
+
+    // Preparar payload para emitir por WebSocket
+    const mensajePayload = {
+      id: nuevoMensaje._id.toString(),
+      contenido: nuevoMensaje.contenido,
+      remitenteId: nuevoMensaje.remitenteId.toString(),
+      destinatarioId: nuevoMensaje.destinatarioId.toString(),
+      matchId: nuevoMensaje.matchId.toString(),
+      leido: nuevoMensaje.leido,
+      createdAt: nuevoMensaje.createdAt
+    };
+
+    // Emitir mensaje por WebSocket si hay destinatario conectado
+    emitirMensajeNuevo(mensajePayload, destinatarioId, matchId);
 
     res.status(201).json({
       message: 'Mensaje enviado',

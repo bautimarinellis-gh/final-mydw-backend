@@ -5,6 +5,7 @@ import { verifyAccessToken } from '../services/tokenService';
 
 export function initializeSocketIO(httpServer: HTTPServer, allowedOrigins: string[]): SocketIOServer<ClientToServerEvents, ServerToClientEvents> {
   const io = new SocketIOServer(httpServer, {
+    transports: ['websocket'], // Forzar solo WebSocket puro
     cors: {
       origin: (origin, callback) => {
         // Permite requests sin origen (como móvil apps)
@@ -33,10 +34,10 @@ export function initializeSocketIO(httpServer: HTTPServer, allowedOrigins: strin
   // Middleware de autenticación
   io.use((socket: AuthenticatedSocket, next) => {
     try {
-      // Intentar obtener token de query string
+      // Intentar obtener token de query string (funciona con WebSocket puro)
       const tokenFromQuery = socket.handshake.query.token as string | undefined;
       
-      // Intentar obtener token de headers Authorization
+      // Intentar obtener token de headers Authorization (fallback)
       const authHeader = socket.handshake.headers.authorization;
       const tokenFromHeader = authHeader?.startsWith('Bearer ') 
         ? authHeader.substring(7) 
@@ -45,7 +46,11 @@ export function initializeSocketIO(httpServer: HTTPServer, allowedOrigins: strin
       const token = tokenFromQuery || tokenFromHeader;
 
       if (!token) {
-        console.warn('[Socket] Conexión rechazada: token no proporcionado');
+        console.warn('[Socket] Conexión rechazada: token no proporcionado', {
+          hasQueryToken: !!tokenFromQuery,
+          hasHeaderToken: !!tokenFromHeader,
+          query: socket.handshake.query,
+        });
         return next(new Error('Token de acceso no proporcionado'));
       }
 
@@ -61,7 +66,7 @@ export function initializeSocketIO(httpServer: HTTPServer, allowedOrigins: strin
       // Asociar userId al socket
       socket.data = { userId };
       
-      console.log(`[Socket] Usuario autenticado: ${userId}`);
+      console.log(`[Socket] Usuario autenticado: ${userId} (transporte: ${socket.conn.transport.name})`);
       next();
     } catch (error) {
       console.warn('[Socket] Conexión rechazada: token inválido o expirado', error);
