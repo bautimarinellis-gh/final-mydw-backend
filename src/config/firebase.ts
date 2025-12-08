@@ -1,13 +1,15 @@
+/**
+ * firebase.ts - Configuración de Firebase Admin SDK para autenticación del backend.
+ * Valida y carga credenciales desde variables de entorno con manejo de errores.
+ */
+
 import * as admin from 'firebase-admin';
 import dotenv from 'dotenv';
 
-// Cargar variables de entorno desde .env solo en desarrollo
-// En producción (Render), las variables deben estar en el servicio o Env Group asociado
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-// Inicializar Firebase Admin SDK solo si no está ya inicializado
 if (!admin.apps.length) {
   try {
     const serviceAccount = {
@@ -24,14 +26,13 @@ if (!admin.apps.length) {
       universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN || 'googleapis.com'
     };
 
-    // Verificar variables críticas
     if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
       const missingVars: string[] = [];
       if (!serviceAccount.project_id) missingVars.push('FIREBASE_PROJECT_ID');
       if (!serviceAccount.client_email) missingVars.push('FIREBASE_CLIENT_EMAIL');
       if (!serviceAccount.private_key) missingVars.push('FIREBASE_PRIVATE_KEY');
       
-      console.error('❌ Variables faltantes:', missingVars.join(', '));
+      console.error('Variables faltantes:', missingVars.join(', '));
       throw new Error(
         `Variables de Firebase faltantes: ${missingVars.join(', ')}`
       );
@@ -41,12 +42,11 @@ if (!admin.apps.length) {
       credential: admin.credential.cert(serviceAccount as admin.ServiceAccount)
     });
   } catch (error) {
-    console.error('❌ Error al inicializar Firebase Admin SDK:', error);
+    console.error('Error al inicializar Firebase Admin SDK:', error);
     throw error;
   }
 }
 
-// Exportar admin para uso en otras partes de la aplicación
 export default admin;
 export const auth = admin.auth();
 

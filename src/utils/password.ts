@@ -1,3 +1,8 @@
+/**
+ * password.ts - Utilidades para hash y comparación de contraseñas con bcrypt.
+ * Usa salt rounds configurables (default: 10).
+ */
+
 import bcrypt from 'bcrypt';
 
 const SALT_ROUNDS = Number(process.env.BCRYPT_SALT_ROUNDS) || 10;

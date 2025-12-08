@@ -1,22 +1,24 @@
+/**
+ * chatController.ts - Controlador de chat y mensajería en tiempo real.
+ * Gestiona conversaciones, mensajes y actualización de estado de leídos entre usuarios con match activo.
+ */
+
 import { Request, Response } from 'express';
 import { MatchModel } from '../models/matchSchema';
 import { MessageModel } from '../models/messageSchema';
 import { UsuarioModel } from '../models/usuarioSchema';
 import { emitirMensajeNuevo } from '../socket/socketHandlers';
 
-// Helper: Validar que existe match activo entre dos usuarios
 async function validarMatch(userId: string, matchId: string, otroUsuarioId: string): Promise<boolean> {
   const match = await MatchModel.findById(matchId);
   
   if (!match) return false;
   if (match.estado !== 'activo') return false;
   
-  // Verificar que el usuario es parte del match
   const esUsuario1 = match.usuario1Id.toString() === userId;
   const esUsuario2 = match.usuario2Id.toString() === userId;
   if (!esUsuario1 && !esUsuario2) return false;
   
-  // Verificar que el otro usuario es la otra parte del match
   const otroEsUsuario1 = match.usuario1Id.toString() === otroUsuarioId;
   const otroEsUsuario2 = match.usuario2Id.toString() === otroUsuarioId;
   if (!otroEsUsuario1 && !otroEsUsuario2) return false;
@@ -24,7 +26,6 @@ async function validarMatch(userId: string, matchId: string, otroUsuarioId: stri
   return true;
 }
 
-// GET /api/chat/conversaciones
 export async function getConversaciones(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.userId;
@@ -34,7 +35,6 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Buscar matches activos del usuario
     const matches = await MatchModel.find({
       $or: [
         { usuario1Id: userId },
@@ -43,7 +43,6 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
       estado: 'activo'
     });
 
-    // Para cada match, obtener último mensaje y contador de no leídos
     const conversaciones = await Promise.all(
       matches.map(async (match) => {
         const otroUsuarioId = match.usuario1Id.toString() === userId 
@@ -52,17 +51,14 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
 
         const otroUsuario = await UsuarioModel.findById(otroUsuarioId);
         
-        // Si el otro usuario está inactivo, filtrar esta conversación
         if (!otroUsuario || !otroUsuario.activo) {
           return null;
         }
         
-        // Obtener último mensaje
         const ultimoMensaje = await MessageModel.findOne({ matchId: match._id })
           .sort({ createdAt: -1 })
           .limit(1);
 
-        // Contar mensajes no leídos recibidos
         const mensajesNoLeidos = await MessageModel.countDocuments({
           matchId: match._id,
           destinatarioId: userId,
@@ -92,7 +88,6 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
       })
     );
 
-    // Filtrar nulls (conversaciones con usuarios inactivos) y ordenar por último mensaje
     const conversacionesValidas = conversaciones
       .filter(c => c !== null)
       .sort((a, b) => {
@@ -110,7 +105,6 @@ export async function getConversaciones(req: Request, res: Response): Promise<vo
   }
 }
 
-// GET /api/chat/conversacion/:matchId
 export async function getConversacion(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.userId;
@@ -135,7 +129,6 @@ export async function getConversacion(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Verificar que el usuario es parte del match
     const esUsuario1 = match.usuario1Id.toString() === userId;
     const esUsuario2 = match.usuario2Id.toString() === userId;
     
@@ -144,7 +137,6 @@ export async function getConversacion(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Obtener el otro usuario
     const otroUsuarioId = esUsuario1 ? match.usuario2Id : match.usuario1Id;
     const otroUsuario = await UsuarioModel.findById(otroUsuarioId);
 
@@ -153,21 +145,16 @@ export async function getConversacion(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Construir query de mensajes
     const query: any = { matchId };
     if (before) {
       query.createdAt = { $lt: new Date(before) };
     }
 
-    // Obtener mensajes
     const mensajes = await MessageModel.find(query)
       .sort({ createdAt: -1 })
       .limit(limit);
 
-    // Invertir para mostrar más antiguos primero
     const mensajesOrdenados = mensajes.reverse();
-
-    // Contar total de mensajes
     const total = await MessageModel.countDocuments({ matchId });
 
     res.status(200).json({
@@ -198,7 +185,6 @@ export async function getConversacion(req: Request, res: Response): Promise<void
   }
 }
 
-// POST /api/chat/mensaje
 export async function enviarMensaje(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.userId;
@@ -209,7 +195,6 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Validaciones
     if (!matchId || !destinatarioId || !contenido) {
       res.status(400).json({ message: 'matchId, destinatarioId y contenido son requeridos' });
       return;
@@ -230,14 +215,12 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Validar que existe match activo
     const matchValido = await validarMatch(userId, matchId, destinatarioId);
     if (!matchValido) {
       res.status(403).json({ message: 'No tienes permiso para enviar mensajes en esta conversación' });
       return;
     }
 
-    // Crear mensaje
     const nuevoMensaje = await MessageModel.create({
       remitenteId: userId,
       destinatarioId,
@@ -246,7 +229,6 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
       leido: false
     });
 
-    // Preparar payload para emitir por WebSocket
     const mensajePayload = {
       id: nuevoMensaje._id.toString(),
       contenido: nuevoMensaje.contenido,
@@ -257,7 +239,6 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
       createdAt: nuevoMensaje.createdAt
     };
 
-    // Emitir mensaje por WebSocket si hay destinatario conectado
     emitirMensajeNuevo(mensajePayload, destinatarioId, matchId);
 
     res.status(201).json({
@@ -278,7 +259,6 @@ export async function enviarMensaje(req: Request, res: Response): Promise<void> 
   }
 }
 
-// PUT /api/chat/mensajes/leidos/:matchId
 export async function marcarMensajesLeidos(req: Request, res: Response): Promise<void> {
   try {
     const userId = req.userId;
@@ -304,7 +284,6 @@ export async function marcarMensajesLeidos(req: Request, res: Response): Promise
       return;
     }
 
-    // Marcar como leídos todos los mensajes recibidos en esta conversación
     const resultado = await MessageModel.updateMany(
       {
         matchId,

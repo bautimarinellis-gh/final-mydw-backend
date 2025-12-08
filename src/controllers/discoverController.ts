@@ -1,3 +1,8 @@
+/**
+ * discoverController.ts - Controlador para descubrimiento de perfiles, swipe y gestión de matches.
+ * Maneja filtros de búsqueda, interacciones (like/dislike), detección de matches y historial de likes.
+ */
+
 import { Request, Response } from 'express';
 import { UsuarioModel } from '../models/usuarioSchema';
 import { InteractionModel } from '../models/interactionSchema';
@@ -5,23 +10,15 @@ import { MatchModel } from '../models/matchSchema';
 import mongoose from 'mongoose';
 import { getImageUrl } from '../utils/fileUtils';
 
-// GET /api/discover/next
-// GET /api/discover/next
 export async function getNextProfile(req: Request, res: Response): Promise<void> {
   try {
-    const userId = req.userId; // Ahora siempre debe estar presente con autenticación
-
+    const userId = req.userId;
     let excluirIds: mongoose.Types.ObjectId[] = [];
 
-    // Si hay usuario autenticado, aplicar filtros para excluir usuarios ya interactuados
     if (userId) {
-      // Convertir userId a ObjectId válido
       const userIdObjectId = new mongoose.Types.ObjectId(userId);
-
-      // Obtener IDs de usuarios ya interactuados (like o dislike) - usar ObjectId para consistencia
       const interacciones = await InteractionModel.find({ usuarioId: userIdObjectId }).select('estudianteId');
       
-      // Convertir y validar todos los IDs de interacciones
       const interactuadosIds = interacciones
         .map(i => i.estudianteId)
         .filter(id => id != null && mongoose.Types.ObjectId.isValid(id))

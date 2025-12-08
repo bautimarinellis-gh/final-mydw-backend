@@ -1,32 +1,31 @@
+/**
+ * uploadMiddleware.ts - Middleware de Multer para subida de imágenes de perfil.
+ * Configura validaciones de tipo, tamaño (5MB) y almacenamiento con nombres únicos.
+ */
+
 import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
-// Crear carpeta uploads/images si no existe
 const uploadsDir = path.join(process.cwd(), 'uploads', 'images');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configuración de almacenamiento
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, uploadsDir);
   },
   filename: (_req, file, cb) => {
-    // Generar nombre único: UUID + extensión original
     const ext = path.extname(file.originalname);
     const filename = `${uuidv4()}${ext}`;
     cb(null, filename);
   },
 });
 
-// Filtro de validación de archivos
 const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  // Validar tipo MIME
-  // Nota: image/jpeg es el tipo MIME estándar, pero algunos navegadores pueden reportar image/jpg
   const allowedMimes = ['image/png', 'image/svg+xml', 'image/jpeg', 'image/jpg'];
   
   if (allowedMimes.includes(file.mimetype)) {
@@ -36,19 +35,16 @@ const fileFilter = (_req: Request, file: Express.Multer.File, cb: multer.FileFil
   }
 };
 
-// Configuración de multer
 export const uploadProfileImage = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB en bytes
+    fileSize: 5 * 1024 * 1024,
   },
   fileFilter: fileFilter,
 });
 
-// Exportar la ruta del directorio de uploads
 export const UPLOADS_DIR = uploadsDir;
 
-// Middleware para manejar errores de multer (se ejecuta después de multer si hay error)
 export const handleUploadError = (err: unknown, req: Request, res: Response, next: NextFunction) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {

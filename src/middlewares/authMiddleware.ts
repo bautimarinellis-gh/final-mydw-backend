@@ -1,3 +1,8 @@
+/**
+ * authMiddleware.ts - Middlewares de autenticación para validar JWT y estado de usuarios.
+ * Incluye verificación de access tokens y validación de cuentas activas.
+ */
+
 import { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../services/tokenService';
 import { UsuarioModel } from '../models/usuarioSchema';
@@ -8,7 +13,6 @@ export function verifyAccessTokenMiddleware(
   next: NextFunction
 ): void {
   try {
-    // Permitir peticiones OPTIONS (preflight de CORS) sin autenticación
     if (req.method === 'OPTIONS') {
       return next();
     }
@@ -24,17 +28,14 @@ export function verifyAccessTokenMiddleware(
       return;
     }
 
-    const token = authHeader.substring(7); // Remover "Bearer "
+    const token = authHeader.substring(7);
     
     try {
       const payload = verifyAccessToken(token);
       req.userId = payload.sub;
       
-      // Validar que el usuario existe y está activo
-      // Hacer esto de forma asincrónica en un middleware separado
       next();
     } catch (tokenError) {
-      // Distinguir entre token expirado y token inválido
       const isExpired = tokenError instanceof Error && 
         (tokenError.message.includes('expired') || tokenError.message.includes('jwt expired'));
       
@@ -46,12 +47,11 @@ export function verifyAccessTokenMiddleware(
       });
     }
   } catch (error) {
-    console.error('[Auth Middleware] Error inesperado:', error);
+    console.error('Error inesperado en auth middleware:', error);
     res.status(500).json({ message: 'Error interno del servidor en autenticación' });
   }
 }
 
-// Middleware para validar que el usuario está activo (debe ir DESPUÉS de verifyAccessTokenMiddleware)
 export async function verifyUserActiveMiddleware(
   req: Request,
   res: Response,
@@ -80,7 +80,7 @@ export async function verifyUserActiveMiddleware(
 
     next();
   } catch (error) {
-    console.error('[Active User Middleware] Error inesperado:', error);
+    console.error('Error inesperado en active user middleware:', error);
     res.status(500).json({ message: 'Error interno del servidor al validar usuario' });
   }
 }

@@ -1,3 +1,8 @@
+/**
+ * tokenService.ts - Servicio de generación y verificación de tokens JWT.
+ * Gestiona access tokens (15m) y refresh tokens (7d) con secrets separados.
+ */
+
 import jwt, { SignOptions } from 'jsonwebtoken';
 
 const ACCESS_SECRET: string = process.env.JWT_ACCESS_SECRET || 'access-secret-dev';
@@ -6,7 +11,7 @@ const ACCESS_TTL: string = process.env.ACCESS_TOKEN_TTL || '15m';
 const REFRESH_TTL: string = process.env.REFRESH_TOKEN_TTL || '7d';
 
 interface TokenPayload {
-  sub: string; // userId
+  sub: string;
 }
 
 export function signAccessToken(userId: string): string {

@@ -1,6 +1,10 @@
+/**
+ * socket.d.ts - Definiciones de tipos para Socket.IO y eventos de WebSocket.
+ * Incluye interfaces de eventos cliente-servidor, payloads de mensajes y socket autenticado.
+ */
+
 import { Socket } from 'socket.io';
 
-// Payload para enviar mensaje
 export interface EnviarMensajePayload {
   matchId: string;
   destinatarioId: string;
@@ -18,17 +22,14 @@ export interface MensajeNuevoPayload {
   createdAt: Date;
 }
 
-// Eventos del cliente al servidor
 export interface ClientToServerEvents {
   'mensaje:enviar': (payload: EnviarMensajePayload, callback: (response: { success: boolean; mensaje?: MensajeNuevoPayload; error?: string }) => void) => void;
 }
 
-// Eventos del servidor al cliente
 export interface ServerToClientEvents {
   'mensaje:nuevo': (mensaje: MensajeNuevoPayload) => void;
 }
 
-// Extender el tipo Socket para incluir userId autenticado
 export interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
   data: {
     userId: string;

@@ -1,3 +1,8 @@
+/**
+ * matchSchema.ts - Modelo de matches confirmados entre usuarios.
+ * Representa conexiones mutuas (like recíproco) con estado activo o bloqueado.
+ */
+
 import { Schema, model } from 'mongoose';
 
 const matchSchema = new Schema({
@@ -8,7 +13,6 @@ const matchSchema = new Schema({
   timestamps: true
 });
 
-// Índice compuesto para evitar duplicados y búsquedas rápidas
 matchSchema.index({ usuario1Id: 1, usuario2Id: 1 }, { unique: true });
 
 export const MatchModel = model('Match', matchSchema);
