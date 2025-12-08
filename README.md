@@ -27,4 +27,4 @@ Este backend provee los servicios necesarios para la gestión de usuarios, auten
 
 ```bash
 npm install
-npm start
+npm run dev
