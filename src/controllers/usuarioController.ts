@@ -553,7 +553,7 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
     // Validar foto de perfil (URL válida o ruta local)
     if (fotoPerfil !== undefined && fotoPerfil !== null) {
       if (typeof fotoPerfil !== 'string') {
-        res.status(400).json({ message: 'La foto de perfil debe ser un string (URL o ruta local)' });
+        res.status(400).json({ message: 'La foto de perfil debe ser un URL o de la galeria' });
         return;
       }
       // Validar que sea una URL válida o ruta local si no está vacío
