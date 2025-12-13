@@ -12,6 +12,13 @@ router.post('/google', loginWithGoogle); // Autenticación con Google
 router.post('/refresh', refresh); // Usa cookies, no requiere token en header
 router.post('/logout', logout); // Limpia cookies, puede ser público
 
+router.get(
+  '/api/discover/next',
+  verifyAccessTokenMiddleware,
+  verifyUserActiveMiddleware,
+  getUsuarios
+);
+
 // Rutas protegidas (requieren autenticación con token JWT)
 router.get('/me', verifyAccessTokenMiddleware, verifyUserActiveMiddleware, me); // Obtener perfil del usuario autenticado
 router.patch('/profile', verifyAccessTokenMiddleware, verifyUserActiveMiddleware, updateProfile); // Actualizar perfil del usuario autenticado
@@ -36,4 +43,3 @@ router.patch('/me/deactivate', verifyAccessTokenMiddleware, deactivateAccount);
 router.delete('/me', verifyAccessTokenMiddleware, deleteAccount);
 
 export default router;
-

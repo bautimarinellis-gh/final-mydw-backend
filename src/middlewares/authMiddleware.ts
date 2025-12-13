@@ -28,7 +28,7 @@ export function verifyAccessTokenMiddleware(
     
     try {
       const payload = verifyAccessToken(token);
-      req.userId = payload.sub;
+      req.userId = String(payload.sub);
       
       // Validar que el usuario existe y está activo
       // Hacer esto de forma asincrónica en un middleware separado

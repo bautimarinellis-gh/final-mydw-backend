@@ -69,3 +69,7 @@ export const handleUploadError = (err: unknown, req: Request, res: Response, nex
   next(err);
 };
 
+export const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
