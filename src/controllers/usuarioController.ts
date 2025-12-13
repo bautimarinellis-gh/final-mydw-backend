@@ -1,3 +1,8 @@
+/**
+ * usuarioController.ts - Controlador de autenticación y gestión de usuarios.
+ * Maneja registro, login (tradicional y Google OAuth), refresh tokens, perfil, subida de imágenes y eliminación de cuentas.
+ */
+
 import { Request, Response } from 'express';
 import { UsuarioModel } from '../models/usuarioSchema';
 import { hashPassword, comparePassword } from '../utils/password';
@@ -8,25 +13,21 @@ import { InteractionModel } from '../models/interactionSchema';
 import { MatchModel } from '../models/matchSchema';
 import { MessageModel } from '../models/messageSchema';
 
-// Helper para configurar cookies de refresh token
 function setRefreshTokenCookie(res: Response, refreshToken: string): void {
   const isProduction = process.env.NODE_ENV === 'production';
   
   res.cookie('refreshToken', refreshToken, {
-    httpOnly: true, // No accesible por JavaScript (más seguro)
-    secure: isProduction, // Solo HTTPS en producción
-    sameSite: isProduction ? 'none' : 'lax', // 'none' permite cross-origin en producción
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
-    path: '/', // Disponible en todas las rutas
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/',
   });
 }
 
-// Helper para enviar tokens
 function sendTokenResponse(res: Response, accessToken: string, refreshToken: string, user: any, req?: Request) {
-  // Configurar cookie httpOnly para refresh token (más seguro, no accesible por JavaScript)
   setRefreshTokenCookie(res, refreshToken);
 
-  // Usuario sin password
   const userResponse = {
     id: user._id,
     nombre: user.nombre,
@@ -40,17 +41,13 @@ function sendTokenResponse(res: Response, accessToken: string, refreshToken: str
     intereses: user.intereses,
   };
 
-  // Solo devolver accessToken en el body (para localStorage)
-  // refreshToken solo en cookie HTTP-only (más seguro)
   return { accessToken, user: userResponse };
 }
 
-// POST /api/auth/register
 export async function register(req: Request, res: Response): Promise<void> {
   try {
     const { nombre, apellido, email, password, descripcion, fotoPerfil, carrera, sede, edad, intereses } = req.body;
 
-    // Validaciones básicas
     if (!nombre || !apellido || !email || !password || !carrera || !sede || !edad) {
       res.status(400).json({ message: 'Nombre, apellido, email, password, carrera, sede y edad son requeridos' });
       return;
@@ -61,7 +58,6 @@ export async function register(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Validar descripción (máximo 300 caracteres)
     if (descripcion !== undefined && descripcion !== null) {
       if (typeof descripcion !== 'string') {
         res.status(400).json({ message: 'La descripción debe ser un string' });
@@ -88,7 +84,6 @@ export async function register(req: Request, res: Response): Promise<void> {
       }
     }
 
-    // Validar y procesar intereses
     if (intereses !== undefined && intereses !== null) {
       if (!Array.isArray(intereses)) {
         res.status(400).json({ message: 'Los intereses deben ser un array' });
@@ -102,32 +97,27 @@ export async function register(req: Request, res: Response): Promise<void> {
       }
     }
 
-    // Verificar email único
     const existingUser = await UsuarioModel.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       res.status(409).json({ message: 'El email ya está registrado' });
       return;
     }
 
-    // Hashear password
     const hashedPassword = await hashPassword(password);
 
-    // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
     let interesesProcesados: string[] = [];
     if (intereses && Array.isArray(intereses)) {
       interesesProcesados = intereses
         .map((interes: string) => interes.trim())
-        .filter((interes: string) => interes !== '') // Eliminar strings vacíos
-        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+        .filter((interes: string) => interes !== '')
+        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index);
       
-      // Validar que después de procesar no haya más de 5
       if (interesesProcesados.length > 5) {
         res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
         return;
       }
     }
 
-    // Crear usuario
     const newUser = await UsuarioModel.create({
       nombre,
       apellido,
@@ -141,7 +131,6 @@ export async function register(req: Request, res: Response): Promise<void> {
       intereses: interesesProcesados,
     });
 
-    // Crear tokens
     const userId = String(newUser._id);
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
@@ -157,7 +146,6 @@ export async function register(req: Request, res: Response): Promise<void> {
   }
 }
 
-// POST /api/auth/login
 export async function login(req: Request, res: Response): Promise<void> {
   try {
     const { email, password } = req.body;
@@ -167,40 +155,34 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Buscar usuario (incluir password explícitamente)
     const user = await UsuarioModel.findOne({ email: email.toLowerCase() }).select('+password');
     if (!user) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
     }
 
-    // Verificar que el usuario no se haya registrado con Google
     if (user.authProvider === 'google') {
       res.status(401).json({ message: 'Esta cuenta está asociada con Google. Por favor, inicia sesión con Google' });
       return;
     }
 
-    // Verificar que el usuario tenga password (debe tenerlo si authProvider es 'email')
     if (!user.password) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
     }
 
-    // Verificar password
     const isValidPassword = await comparePassword(password, user.password);
     if (!isValidPassword) {
       res.status(401).json({ message: 'Credenciales inválidas' });
       return;
     }
 
-    // Si la cuenta estaba desactivada, reactivarla automáticamente
     if (!user.activo) {
       user.activo = true;
       await user.save();
-      console.log(`[Auth] Cuenta reactivada: ${email}`);
+      console.log(`Cuenta reactivada: ${email}`);
     }
 
-    // Crear tokens
     const userId = String(user._id);
     const accessToken = signAccessToken(userId);
     const refreshToken = signRefreshToken(userId);
@@ -216,18 +198,15 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 }
 
-// POST /api/auth/google
 export async function loginWithGoogle(req: Request, res: Response): Promise<void> {
   try {
     const { idToken, carrera, sede, edad, intereses } = req.body;
 
-    // Validar que idToken esté presente (obligatorio siempre)
     if (!idToken) {
       res.status(400).json({ message: 'Token de ID de Google es requerido' });
       return;
     }
 
-    // Verificar token con Firebase Admin SDK
     let decodedToken;
     try {
       decodedToken = await auth.verifyIdToken(idToken);
@@ -237,7 +216,6 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Extraer información de Google
     const googleId = decodedToken.uid;
     const email = decodedToken.email?.toLowerCase();
     const name = decodedToken.name || '';
@@ -248,13 +226,10 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Parsear nombre completo para obtener nombre y apellido
-    // Si Google proporciona given_name y family_name, usarlos; si no, dividir el nombre
     let nombre = decodedToken.given_name || '';
     let apellido = decodedToken.family_name || '';
 
     if (!nombre || !apellido) {
-      // Intentar dividir el nombre completo
       const nameParts = name.trim().split(' ');
       if (nameParts.length >= 2) {
         nombre = nameParts[0];
@@ -263,7 +238,7 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
         nombre = nameParts[0];
         apellido = '';
       } else {
-        nombre = email.split('@')[0]; // Usar parte antes del @ como nombre
+        nombre = email.split('@')[0];
         apellido = '';
       }
     }
@@ -273,7 +248,6 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       return;
     }
 
-    // Buscar usuario existente por email o googleId
     let user = await UsuarioModel.findOne({
       $or: [
         { email: email },
@@ -281,72 +255,60 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       ]
     });
 
-    // Determinar modo: si carrera, sede y edad están presentes -> REGISTRO, sino -> LOGIN
     const isRegisterMode = carrera !== undefined && sede !== undefined && edad !== undefined;
 
     if (isRegisterMode) {
-      // ========== MODO REGISTRO ==========
-      
-      // Validar campos requeridos para registro
       if (!carrera || !sede || !edad) {
         res.status(400).json({ message: 'Carrera, sede y edad son requeridos para el registro' });
         return;
       }
 
-      // Validar edad
       if (typeof edad !== 'number' || edad < 18 || edad > 100) {
         res.status(400).json({ message: 'La edad debe ser un número entre 18 y 100' });
         return;
       }
 
-      // Validar y procesar intereses
       let interesesProcesados: string[] = [];
       if (intereses !== undefined && intereses !== null) {
         if (!Array.isArray(intereses)) {
           res.status(400).json({ message: 'Los intereses deben ser un array' });
           return;
         }
-        // Validar que todos los intereses sean strings
         const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
         if (interesesInvalidos) {
           res.status(400).json({ message: 'Todos los intereses deben ser strings' });
           return;
         }
         
-        // Procesar intereses: limpiar, eliminar duplicados y validar máximo 5
         interesesProcesados = intereses
           .map((interes: string) => interes.trim())
-          .filter((interes: string) => interes !== '') // Eliminar strings vacíos
-          .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+          .filter((interes: string) => interes !== '')
+          .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index);
         
-        // Validar que después de procesar no haya más de 5
         if (interesesProcesados.length > 5) {
           res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
           return;
         }
       }
 
-      // Si el usuario ya existe, rechazar registro
       if (user) {
         res.status(409).json({ message: 'Este usuario ya está registrado. Por favor, inicia sesión' });
         return;
       }
 
-      // Verificar email único (por si acaso)
       const existingEmail = await UsuarioModel.findOne({ email: email });
       if (existingEmail) {
         res.status(409).json({ message: 'El email ya está registrado' });
         return;
       }
 
-      // Crear nuevo usuario
       user = await UsuarioModel.create({
         nombre,
         apellido: apellido || 'Sin apellido',
         email: email,
         googleId: googleId,
         authProvider: 'google',
-        password: undefined, // No password para usuarios de Google
+        password: undefined,
         carrera,
         sede,
         edad,
@@ -354,7 +316,6 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
         intereses: interesesProcesados,
       });
 
-      // Crear tokens JWT
       const userId = String(user._id);
       const accessToken = signAccessToken(userId);
       const refreshToken = signRefreshToken(userId);
@@ -366,31 +327,23 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
       });
 
     } else {
-      // ========== MODO LOGIN ==========
-      
-      // Si el usuario no existe, rechazar login
       if (!user) {
         res.status(404).json({ message: 'Usuario no registrado. Por favor, regístrate primero' });
         return;
       }
 
-      // Usuario existe - hacer login
-      // Si el usuario existe pero no tiene googleId, vincular la cuenta
       if (!user.googleId) {
         user.googleId = googleId;
         user.authProvider = 'google';
-        // Actualizar foto de perfil si viene de Google y el usuario no tiene una
         if (picture && (!user.fotoPerfil || user.fotoPerfil.trim() === '')) {
           user.fotoPerfil = picture;
         }
-        // Actualizar nombre y apellido si fueron actualizados
         user.nombre = nombre;
         if (apellido && apellido.trim() !== '') {
           user.apellido = apellido;
         }
         await user.save();
       } else if (user.googleId !== googleId) {
-        // Google ID diferente - conflicto
         res.status(409).json({ message: 'Esta cuenta de Google ya está asociada con otro usuario' });
         return;
       }
@@ -402,7 +355,6 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
         console.log(`[Auth] Cuenta reactivada con Google: ${email}`);
       }
 
-      // Crear tokens JWT
       const userId = String(user._id);
       const accessToken = signAccessToken(userId);
       const refreshToken = signRefreshToken(userId);
@@ -432,7 +384,6 @@ export async function loginWithGoogle(req: Request, res: Response): Promise<void
   }
 }
 
-// POST /api/auth/refresh
 export async function refresh(req: Request, res: Response): Promise<void> {
   try {
     const refreshToken = req.cookies.refreshToken;
@@ -442,7 +393,6 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Verificar firma del token (si es válido y no expirado)
     let payload;
     try {
       payload = verifyRefreshToken(refreshToken);
@@ -451,14 +401,12 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Verificar que el usuario existe
     const user = await UsuarioModel.findById(payload.sub);
     if (!user) {
       res.status(401).json({ message: 'Usuario no encontrado' });
       return;
     }
 
-    // Generar nuevos tokens
     const userId = String(user._id);
     const newAccessToken = signAccessToken(userId);
     const newRefreshToken = signRefreshToken(userId);
@@ -476,10 +424,8 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   }
 }
 
-// POST /api/auth/logout
 export async function logout(req: Request, res: Response): Promise<void> {
   try {
-    // Limpiar cookie con las mismas opciones que se usaron para crearla
     const isProduction = process.env.NODE_ENV === 'production';
     res.clearCookie('refreshToken', {
       httpOnly: true,
@@ -494,7 +440,6 @@ export async function logout(req: Request, res: Response): Promise<void> {
   }
 }
 
-// GET /api/me (protegido)
 export async function me(req: Request, res: Response): Promise<void> {
   try {
     if (!req.userId) {
@@ -528,7 +473,6 @@ export async function me(req: Request, res: Response): Promise<void> {
   }
 }
 
-// PATCH /api/auth/profile (protegido)
 export async function updateProfile(req: Request, res: Response): Promise<void> {
   try {
     if (!req.userId) {
@@ -538,7 +482,6 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
 
     const { descripcion, fotoPerfil, intereses } = req.body;
 
-    // Validar descripción (máximo 300 caracteres)
     if (descripcion !== undefined && descripcion !== null) {
       if (typeof descripcion !== 'string') {
         res.status(400).json({ message: 'La descripción debe ser un string' });
@@ -565,33 +508,28 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
       }
     }
 
-    // Validar intereses
     if (intereses !== undefined && intereses !== null) {
       if (!Array.isArray(intereses)) {
         res.status(400).json({ message: 'Los intereses deben ser un array' });
         return;
       }
-      // Validar que todos los intereses sean strings
       const interesesInvalidos = intereses.some(interes => typeof interes !== 'string');
       if (interesesInvalidos) {
         res.status(400).json({ message: 'Todos los intereses deben ser strings' });
         return;
       }
-      // Validar máximo 5 intereses
       if (intereses.length > 5) {
         res.status(400).json({ message: 'Máximo 5 intereses permitidos' });
         return;
       }
     }
 
-    // Buscar usuario
     const user = await UsuarioModel.findById(req.userId);
     if (!user) {
       res.status(404).json({ message: 'Usuario no encontrado' });
       return;
     }
 
-    // Construir objeto de actualización solo con los campos proporcionados
     const updateData: any = {};
     
     if (descripcion !== undefined) {
@@ -603,13 +541,11 @@ export async function updateProfile(req: Request, res: Response): Promise<void> 
     }
     
     if (intereses !== undefined) {
-      // Procesar intereses: limpiar, eliminar duplicados y vacíos
       const interesesProcesados = intereses
         .map((interes: string) => interes.trim())
-        .filter((interes: string) => interes !== '') // Eliminar strings vacíos
-        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index); // Eliminar duplicados
+        .filter((interes: string) => interes !== '')
+        .filter((interes: string, index: number, self: string[]) => self.indexOf(interes) === index);
       
-      // Validar que después de procesar no haya más de 5
       if (interesesProcesados.length > 5) {
         res.status(400).json({ message: 'Máximo 5 intereses permitidos (después de eliminar duplicados y vacíos)' });
         return;

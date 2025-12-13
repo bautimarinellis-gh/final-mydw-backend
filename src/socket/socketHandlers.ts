@@ -1,21 +1,23 @@
+/**
+ * socketHandlers.ts - Manejadores de eventos WebSocket para chat en tiempo real.
+ * Gestiona conexiones, envío de mensajes, validación de matches y sincronización de rooms.
+ */
+
 import { Server } from 'socket.io';
 import { AuthenticatedSocket, EnviarMensajePayload, MensajeNuevoPayload, ClientToServerEvents, ServerToClientEvents } from '../types/socket';
 import { MessageModel } from '../models/messageSchema';
 import { MatchModel } from '../models/matchSchema';
 
-// Helper: Validar que existe match activo entre dos usuarios (reutilizado de chatController)
 async function validarMatch(userId: string, matchId: string, otroUsuarioId: string): Promise<boolean> {
   const match = await MatchModel.findById(matchId);
   
   if (!match) return false;
   if (match.estado !== 'activo') return false;
   
-  // Verificar que el usuario es parte del match
   const esUsuario1 = match.usuario1Id.toString() === userId;
   const esUsuario2 = match.usuario2Id.toString() === userId;
   if (!esUsuario1 && !esUsuario2) return false;
   
-  // Verificar que el otro usuario es la otra parte del match
   const otroEsUsuario1 = match.usuario1Id.toString() === otroUsuarioId;
   const otroEsUsuario2 = match.usuario2Id.toString() === otroUsuarioId;
   if (!otroEsUsuario1 && !otroEsUsuario2) return false;
@@ -23,59 +25,50 @@ async function validarMatch(userId: string, matchId: string, otroUsuarioId: stri
   return true;
 }
 
-// Mapa para rastrear usuarios conectados: userId -> socketId
 const usuariosConectados = new Map<string, string>();
 
-// Variable global para almacenar la instancia de io
 let ioInstance: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
 
-// Función para obtener la instancia de io
 export function getIOInstance(): Server<ClientToServerEvents, ServerToClientEvents> | null {
   return ioInstance;
 }
 
-// Función helper para emitir mensajes nuevos (puede ser llamada desde HTTP o WebSocket)
 export function emitirMensajeNuevo(
   mensajePayload: MensajeNuevoPayload,
   destinatarioId: string,
   matchId: string
 ): void {
   if (!ioInstance) {
-    console.warn('[Socket] No hay instancia de io disponible para emitir mensaje');
+    console.warn('No hay instancia de io disponible para emitir mensaje');
     return;
   }
   
   const io = ioInstance;
-  // Emitir al destinatario si está conectado
   const destinatarioSocketId = usuariosConectados.get(destinatarioId);
   if (destinatarioSocketId) {
     io.to(destinatarioSocketId).emit('mensaje:nuevo', mensajePayload);
-    console.log(`[Socket] Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (conectado)`);
+    console.log(`Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (conectado)`);
   } else {
-    console.log(`[Socket] Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (no conectado)`);
+    console.log(`Mensaje emitido de ${mensajePayload.remitenteId} a ${destinatarioId} (no conectado)`);
   }
 
-  // También emitir en el room del match para sincronización
   io.to(`match:${matchId}`).emit('mensaje:nuevo', mensajePayload);
 }
 
 export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
-  // Guardar la instancia de io para uso global
   ioInstance = io;
   io.on('connection', (socket: AuthenticatedSocket) => {
     const userId = socket.data.userId;
     
     if (!userId) {
-      console.warn('[Socket] Conexión rechazada: usuario no autenticado');
+      console.warn('Conexión rechazada: usuario no autenticado');
       socket.disconnect();
       return;
     }
 
-    // Registrar usuario conectado
     usuariosConectados.set(userId, socket.id);
-    console.log(`[Socket] Usuario conectado: ${userId} (socket: ${socket.id})`);
+    console.log(`Usuario conectado: ${userId} (socket: ${socket.id})`);
 
-    // Unirse a rooms de matches activos del usuario
     MatchModel.find({
       $or: [
         { usuario1Id: userId },
@@ -86,15 +79,13 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
       matches.forEach(match => {
         socket.join(`match:${match._id.toString()}`);
       });
-      console.log(`[Socket] Usuario ${userId} unido a ${matches.length} conversaciones`);
+      console.log(`Usuario ${userId} unido a ${matches.length} conversaciones`);
     }).catch(error => {
-      console.error(`[Socket] Error al obtener matches para ${userId}:`, error);
+      console.error(`Error al obtener matches para ${userId}:`, error);
     });
 
-    // Handler para enviar mensaje
     socket.on('mensaje:enviar', async (payload: EnviarMensajePayload, callback) => {
       try {
-        // Validar que el usuario está autenticado
         if (!userId) {
           callback({ success: false, error: 'No autenticado' });
           return;
@@ -102,7 +93,6 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
 
         const { matchId, destinatarioId, contenido } = payload;
 
-        // Validaciones básicas
         if (!matchId || !destinatarioId || !contenido) {
           callback({ success: false, error: 'matchId, destinatarioId y contenido son requeridos' });
           return;
@@ -123,14 +113,12 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
           return;
         }
 
-        // Validar que existe match activo
         const matchValido = await validarMatch(userId, matchId, destinatarioId);
         if (!matchValido) {
           callback({ success: false, error: 'No tienes permiso para enviar mensajes en esta conversación' });
           return;
         }
 
-        // Crear mensaje en BD
         const nuevoMensaje = await MessageModel.create({
           remitenteId: userId,
           destinatarioId,
@@ -139,7 +127,6 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
           leido: false
         });
 
-        // Preparar payload para emitir
         const mensajePayload: MensajeNuevoPayload = {
           id: nuevoMensaje._id.toString(),
           contenido: nuevoMensaje.contenido,
@@ -150,14 +137,12 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
           createdAt: nuevoMensaje.createdAt
         };
 
-        // Emitir mensaje usando la función helper
         emitirMensajeNuevo(mensajePayload, destinatarioId, matchId);
 
-        // Confirmar al remitente
         callback({ success: true, mensaje: mensajePayload });
 
       } catch (error) {
-        console.error('[Socket] Error en mensaje:enviar:', error);
+        console.error('Error en mensaje:enviar:', error);
         callback({ 
           success: false, 
           error: error instanceof Error ? error.message : 'Error interno del servidor' 
@@ -165,10 +150,9 @@ export function setupSocketHandlers(io: Server<ClientToServerEvents, ServerToCli
       }
     });
 
-    // Manejar desconexión
     socket.on('disconnect', () => {
       usuariosConectados.delete(userId);
-      console.log(`[Socket] Usuario desconectado: ${userId} (socket: ${socket.id})`);
+      console.log(`Usuario desconectado: ${userId} (socket: ${socket.id})`);
     });
   });
 }

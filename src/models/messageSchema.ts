@@ -1,3 +1,8 @@
+/**
+ * messageSchema.ts - Modelo de mensajes del chat entre usuarios con match.
+ * Almacena contenido de mensajes, estado de lectura y referencias a remitente/destinatario.
+ */
+
 import { Schema, model } from 'mongoose';
 
 const messageSchema = new Schema({
@@ -10,7 +15,6 @@ const messageSchema = new Schema({
   timestamps: true
 });
 
-// Índice compuesto para búsquedas eficientes por conversación
 messageSchema.index({ matchId: 1, createdAt: -1 });
 
 export const MessageModel = model('Message', messageSchema);

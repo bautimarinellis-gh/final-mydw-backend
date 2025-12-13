@@ -1,3 +1,8 @@
+/**
+ * usuarioSchema.ts - Modelo de usuario con autenticación tradicional y Google OAuth.
+ * Incluye datos personales, académicos, perfil, intereses y estado de cuenta (activo/inactivo).
+ */
+
 import { Schema, model } from 'mongoose';
 
 const usuarioSchema = new Schema({
@@ -7,7 +12,6 @@ const usuarioSchema = new Schema({
   password: { 
     type: String, 
     required: function(this: any) {
-      // Password requerido solo para autenticación con email
       return this.authProvider === 'email';
     }, 
     select: false 
@@ -29,7 +33,7 @@ const usuarioSchema = new Schema({
     type: String, 
     trim: true, 
     default: '' 
-  }, // Almacena URL externa (http:// o https://) o ruta local (/api/uploads/images/archivo.png)
+  },
   activo: { type: Boolean, default: true },
   carrera: { type: String, required: true, trim: true },
   sede: { type: String, required: true, trim: true },
